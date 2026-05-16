@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. The first target was stable ESP32-C3 Wi-Fi station mode. Milestone 2 now adds Laravel heartbeat only, without sensors, OLED, RTC, valve control, command polling, config fetch, or setup portal.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 now adds Laravel config fetch and command polling, but still does not control hardware.
 
-## Current scope: Milestone 2
+## Current scope: Milestone 3
 
 Included now:
 
@@ -17,24 +17,28 @@ Included now:
 - 15 second Wi-Fi connection timeout
 - 10 second Wi-Fi retry interval
 - 20 ms cooperative loop delay
-- Serial boot diagnostics
-- Serial Wi-Fi status logs
 - Minimal `ApiClient`
-- `POST /api/device/heartbeat`
-- `X-DEVICE-KEY` header
+- `POST /api/device/heartbeat` every 15 seconds
+- `GET /api/device/config?device_uuid=...` every 60 seconds
+- `GET /api/device/commands?device_uuid=...` every 5 seconds
+- `POST /api/device/commands/{id}/ack` helper
 - 7 second HTTP timeout
-- 15 second heartbeat interval
+- Serial summaries for config and commands
 
 Not included yet:
 
-- config fetch
-- command polling
-- valve control
+- valve GPIO control
 - sensors
 - OLED
 - RTC
 - setup portal
 - AP+STA scanning
+
+## Milestone 3 command safety
+
+Milestone 3 is API-only. If the firmware receives `valve_on` or `valve_off`, it logs the command and marks it as `failed` with a message saying valve GPIO control is not enabled yet.
+
+This is intentional. It prevents Laravel watering logs from showing a fake successful watering before GPIO5 valve control exists.
 
 ## Hardware target
 
@@ -61,7 +65,7 @@ Planned future pin map:
 - Do not connect DS1307 I2C pullups to 5V.
 - DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
 - Do not connect all modules during early milestones. Test the bare C3 first.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi and heartbeat are stable.
+- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, and command polling are stable.
 
 ## Local secrets setup
 
@@ -101,26 +105,39 @@ Expected serial output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m2-0.1
+Firmware version: smart-plant-bed-c3-m3-0.1
 Connecting Wi-Fi: ...
 Wi-Fi connected.
-IP address: ...
 POST http://.../api/device/heartbeat
-Heartbeat HTTP status: 200
-Heartbeat sent successfully.
+POST HTTP status: 200
+GET http://.../api/device/config?device_uuid=...
+GET HTTP status: 200
+Config summary:
+GET http://.../api/device/commands?device_uuid=...
+GET HTTP status: 200
+No pending command.
 Wi-Fi OK. IP=... RSSI=... dBm Laravel=reachable
 ```
 
-If upload works but serial monitor is blank, press the board reset button once while the monitor is open.
+If you send a dashboard watering command during Milestone 3, expected output should include:
+
+```text
+Command found: #... type=valve_on
+Milestone 3 safety: valve command received but GPIO valve control is not enabled yet.
+POST http://.../api/device/commands/.../ack
+POST HTTP status: 200
+Command #... marked as failed
+```
 
 ## Next milestone
 
-Milestone 3 should add config fetch and command polling only:
+Milestone 4 should add valve control only:
 
-- `GET /api/device/config?device_uuid=...`
-- compact config cache
-- `GET /api/device/commands?device_uuid=...`
-- command ACK helper
-- no valve hardware action until Milestone 4
+- GPIO5 output
+- safe default OFF on boot
+- `valve_on` command support
+- `valve_off` command support
+- command ACK flow: `acknowledged` then `executed` or `failed`
+- watering LED mirrors valve because it is physically tied to GPIO5
 
-Keep Milestone 3 small so API parsing problems and valve hardware problems are easy to separate.
+Do not add sensors/OLED/RTC in Milestone 4.
