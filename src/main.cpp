@@ -14,6 +14,8 @@ const int VALVE_PIN = 5;
 const int VALVE_ON_LEVEL = HIGH;
 const int VALVE_OFF_LEVEL = LOW;
 
+const char DEVICE_TYPE[] = "plant_bed_controller";
+
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 const unsigned long LOOP_IDLE_DELAY_MS = 20;
@@ -124,7 +126,7 @@ void connectWifi()
   Serial.print("Connecting Wi-Fi: ");
   Serial.println(WIFI_SSID);
 
-  // Match the stable Smart Fountain C3 Wi-Fi pattern exactly:
+  // Match the stable Plant Bed / Smart Fountain C3 Wi-Fi pattern:
   // station mode, reduced TX power, then begin. Do not force Wi-Fi sleep off.
   WiFi.mode(WIFI_STA);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
@@ -266,6 +268,43 @@ bool sendHeartbeat()
   }
 
   Serial.println("Heartbeat failed.");
+  return false;
+}
+
+String buildDeviceStatePayload(int lastCompletedCommandId = 0)
+{
+  JsonDocument doc;
+  doc["device_uuid"] = DEVICE_UUID;
+  doc["device_type"] = DEVICE_TYPE;
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["operation_state"] = wateringActive ? "watering" : "idle";
+  doc["valve_state"] = valveIsOn ? "open" : "closed";
+  doc["watering_state"] = wateringActive ? "watering" : "idle";
+
+  if (lastCompletedCommandId > 0)
+  {
+    doc["last_completed_command_id"] = lastCompletedCommandId;
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+  return payload;
+}
+
+bool syncDeviceState(int lastCompletedCommandId = 0)
+{
+  String response;
+  int statusCode;
+  String payload = buildDeviceStatePayload(lastCompletedCommandId);
+  bool ok = httpPostJson(apiClient.url("/api/device/state"), payload, response, statusCode);
+
+  if (ok)
+  {
+    Serial.println("Device state synced successfully.");
+    return true;
+  }
+
+  Serial.println("Device state sync failed.");
   return false;
 }
 
@@ -465,6 +504,8 @@ void handleValveOnCommand(int commandId, JsonObject command)
   wateringActive = true;
 
   setValveOn("dashboard command");
+  syncDeviceState(0);
+
   Serial.print("Watering will auto-stop after seconds: ");
   Serial.println(durationSeconds);
 }
@@ -484,6 +525,8 @@ void completeActiveWatering(const char *reason)
       Serial.println(completedCommandId);
     }
   }
+
+  syncDeviceState(completedCommandId);
 }
 
 void handleValveOffCommand(int commandId)
@@ -510,6 +553,8 @@ void handleValveOffCommand(int commandId)
   {
     Serial.println("Valve OFF command executed.");
   }
+
+  syncDeviceState(commandId);
 }
 
 void updateWateringState()
@@ -639,6 +684,7 @@ void runStartupApiTasks()
 {
   sendHeartbeat();
   fetchConfig();
+  syncDeviceState(0);
   pollCommands();
 
   unsigned long now = millis();
