@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control and Plant Bed state sync.
 
-## Current scope: Milestone 4.3
+## Current scope: Milestone 4.4
 
 Included now:
 
@@ -12,7 +12,7 @@ Included now:
 - Arduino framework
 - Native USB serial flags for ESP32-C3
 - Fixed local Wi-Fi credentials through `include/DeviceSecrets.h`
-- Smart Fountain-style C3 Wi-Fi:
+- Smart Plant Bed / Smart Fountain C3-style Wi-Fi:
   - `WiFi.mode(WIFI_STA)`
   - `WiFi.setTxPower(WIFI_POWER_8_5dBm)`
   - no forced `WiFi.setSleep(false)`
@@ -24,6 +24,7 @@ Included now:
 - `GET /api/device/config?device_uuid=...` every 60 seconds
 - `GET /api/device/commands?device_uuid=...` every 5 seconds
 - `POST /api/device/commands/{id}/ack` helper
+- `POST /api/device/state` Plant Bed state sync
 - GPIO5 valve output, active HIGH
 - safe valve OFF on boot
 - `valve_on` command support
@@ -41,6 +42,42 @@ Not included yet:
 - automatic local watering
 - schedule fallback execution
 
+## Plant Bed state sync
+
+The firmware syncs actual device state to Laravel using:
+
+```http
+POST /api/device/state
+```
+
+Payload shape:
+
+```json
+{
+  "device_uuid": "...",
+  "device_type": "plant_bed_controller",
+  "firmware_version": "smart-plant-bed-c3-m4-0.4",
+  "operation_state": "idle",
+  "valve_state": "closed",
+  "watering_state": "idle"
+}
+```
+
+When a command completes, the payload can include:
+
+```json
+{
+  "last_completed_command_id": 123
+}
+```
+
+State sync happens:
+
+- after startup API tasks
+- after `valve_on` starts watering
+- after `valve_off` stops watering
+- after duration auto-stop completes
+
 ## Milestone 4 valve behavior
 
 `valve_on` behavior:
@@ -49,9 +86,11 @@ Not included yet:
 2. Firmware validates duration.
 3. Firmware ACKs command as `acknowledged`.
 4. GPIO5 goes HIGH.
-5. Device keeps watering active until duration completes.
-6. GPIO5 goes LOW automatically.
-7. Firmware marks the original `valve_on` command as `executed`.
+5. Device syncs state as watering/open.
+6. Device keeps watering active until duration completes.
+7. GPIO5 goes LOW automatically.
+8. Firmware marks the original `valve_on` command as `executed`.
+9. Device syncs final state as idle/closed.
 
 `valve_off` behavior:
 
@@ -60,12 +99,13 @@ Not included yet:
 3. GPIO5 goes LOW immediately.
 4. Any active `valve_on` command is closed as `executed`.
 5. Stop command is marked as `executed`.
+6. Device syncs final state as idle/closed.
 
 This matches the original Plant Bed runtime idea: a watering command is not marked executed until watering actually ends.
 
 ## Milestone 4 safety rule
 
-First Milestone 4 upload/test should be done with the MOSFET/valve disconnected. Confirm serial logs and command ACK flow first. After that passes, connect GPIO5 to the LR7843 input and test with the valve power side safely wired.
+First Milestone 4 upload/test should be done with the MOSFET/valve disconnected. Confirm serial logs and command ACK/state flow first. After that passes, connect GPIO5 to the LR7843 input and test with the valve power side safely wired.
 
 GPIO5 behavior:
 
@@ -91,7 +131,7 @@ Planned pin map:
 | OLED wake/status button | GPIO4 | Future milestone, to GND, `INPUT_PULLUP` |
 | Wi-Fi reset button | GPIO7 | Future milestone, to GND, `INPUT_PULLUP` |
 | I2C SDA | GPIO8 | OLED + RTC later |
-| I2C SCL | GPIO9 | OLED + RTC later |
+| I2C SCL | GPIO9 | OLED + RTC later; test boot carefully |
 
 ## Safety notes
 
@@ -101,7 +141,7 @@ Planned pin map:
 - Do not power the valve from the ESP32-C3 3.3V pin.
 - Do not connect DS1307 I2C pullups to 5V.
 - DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, and valve control are stable.
+- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, state sync, and valve control are stable.
 
 ## Local secrets setup
 
@@ -141,11 +181,13 @@ Expected boot output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m4-0.3
+Firmware version: smart-plant-bed-c3-m4-0.4
 Valve OFF - safe boot default
 Valve GPIO: 5
 Wi-Fi connected.
 Config fetched successfully.
+POST http://.../api/device/state
+Device state synced successfully.
 No pending command.
 ```
 
@@ -156,6 +198,8 @@ Command found: #... type=valve_on
 Valve ON command duration_seconds: ...
 Command #... marked as acknowledged
 Valve ON - dashboard command
+POST http://.../api/device/state
+Device state synced successfully.
 Watering will auto-stop after seconds: ...
 ```
 
@@ -166,6 +210,8 @@ Watering duration completed.
 Valve OFF - duration completed
 Command #... marked as executed
 Valve ON command completed and executed: #...
+POST http://.../api/device/state
+Device state synced successfully.
 ```
 
 When you send a stop command during active watering, expected output should include:
@@ -177,16 +223,17 @@ Valve OFF - dashboard stop command
 Closing interrupted valve_on command: #...
 Command #... marked as executed
 Valve OFF command executed.
+POST http://.../api/device/state
+Device state synced successfully.
 ```
 
 ## Next milestone
 
-Milestone 5 should add soil moisture sensor first:
+Before adding more hardware, improve C3 network responsiveness toward the old Plant Bed model:
 
-- GPIO1 ADC input
-- disconnected sensor handling
-- raw ADC logging
-- calibration values for ESP32-C3
-- readings upload only after local reading is stable
+- shorter HTTP connect/response timeouts
+- better server reachability window
+- slower offline API retry behavior
+- keep local watering updates responsive
 
-Do not add DHT11/OLED/RTC before soil moisture is stable.
+Then add the manual watering button on GPIO3.
