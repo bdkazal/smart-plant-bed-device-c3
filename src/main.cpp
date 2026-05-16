@@ -111,8 +111,9 @@ void connectWifi()
   Serial.print("Connecting Wi-Fi: ");
   Serial.println(WIFI_SSID);
 
+  // Match the stable Smart Fountain C3 Wi-Fi pattern exactly:
+  // station mode, reduced TX power, then begin. Do not force Wi-Fi sleep off.
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
