@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 now adds Laravel config fetch and command polling, but still does not control hardware.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds GPIO5 valve control only.
 
-## Current scope: Milestone 3
+## Current scope: Milestone 4
 
 Included now:
 
@@ -22,50 +22,62 @@ Included now:
 - `GET /api/device/config?device_uuid=...` every 60 seconds
 - `GET /api/device/commands?device_uuid=...` every 5 seconds
 - `POST /api/device/commands/{id}/ack` helper
-- 7 second HTTP timeout
-- Serial summaries for config and commands
+- GPIO5 valve output, active HIGH
+- safe valve OFF on boot
+- `valve_on` command support
+- `valve_off` command support
+- command ACK flow: `acknowledged` then `executed`
+- watering LED mirrors valve if physically connected to GPIO5 through resistor
 
 Not included yet:
 
-- valve GPIO control
 - sensors
 - OLED
 - RTC
 - setup portal
 - AP+STA scanning
+- automatic local watering
+- schedule fallback execution
 
-## Milestone 3 command safety
+## Milestone 4 safety rule
 
-Milestone 3 is API-only. If the firmware receives `valve_on` or `valve_off`, it logs the command and marks it as `failed` with a message saying valve GPIO control is not enabled yet.
+First Milestone 4 upload/test should be done with the MOSFET/valve disconnected. Confirm serial logs and command ACK flow first. After that passes, connect GPIO5 to the LR7843 input and test with the valve power side safely wired.
 
-This is intentional. It prevents Laravel watering logs from showing a fake successful watering before GPIO5 valve control exists.
+GPIO5 behavior:
+
+| State | GPIO5 |
+| --- | --- |
+| Valve OFF | LOW |
+| Valve ON | HIGH |
 
 ## Hardware target
 
 ESP32-C3 Super Mini only.
 
-Planned future pin map:
+Planned pin map:
 
 | Function | GPIO | Notes |
 | --- | ---: | --- |
 | Valve / LR7843 MOSFET input | GPIO5 | Active HIGH |
 | Watering LED | GPIO5 | Same valve signal through 330 ohm resistor |
-| Wi-Fi status LED | GPIO6 | Through 330 ohm resistor |
-| Soil moisture ADC | GPIO1 | With 100k pulldown to GND |
+| Wi-Fi status LED | GPIO6 | Future milestone |
+| Soil moisture ADC | GPIO1 | Future milestone, with 100k pulldown to GND |
 | DHT11 data | GPIO2 | Future milestone |
-| Manual watering button | GPIO3 | To GND, `INPUT_PULLUP` |
-| OLED wake/status button | GPIO4 | To GND, `INPUT_PULLUP` |
-| Wi-Fi reset button | GPIO7 | To GND, `INPUT_PULLUP` |
+| Manual watering button | GPIO3 | Future milestone, to GND, `INPUT_PULLUP` |
+| OLED wake/status button | GPIO4 | Future milestone, to GND, `INPUT_PULLUP` |
+| Wi-Fi reset button | GPIO7 | Future milestone, to GND, `INPUT_PULLUP` |
 | I2C SDA | GPIO8 | OLED + RTC later |
 | I2C SCL | GPIO9 | OLED + RTC later |
 
 ## Safety notes
 
 - ESP32-C3 GPIO pins are not 5V tolerant.
+- LR7843 input must be driven from ESP32-C3 GPIO logic only, not from 5V.
+- Use common GND between ESP32-C3 and valve power/MOSFET side.
+- Do not power the valve from the ESP32-C3 3.3V pin.
 - Do not connect DS1307 I2C pullups to 5V.
 - DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
-- Do not connect all modules during early milestones. Test the bare C3 first.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, and command polling are stable.
+- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, and valve control are stable.
 
 ## Local secrets setup
 
@@ -101,43 +113,46 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-Expected serial output should include:
+Expected boot output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m3-0.1
-Connecting Wi-Fi: ...
+Firmware version: smart-plant-bed-c3-m4-0.1
+Valve OFF - safe boot default
+Valve GPIO: 5
 Wi-Fi connected.
-POST http://.../api/device/heartbeat
-POST HTTP status: 200
-GET http://.../api/device/config?device_uuid=...
-GET HTTP status: 200
-Config summary:
-GET http://.../api/device/commands?device_uuid=...
-GET HTTP status: 200
+Config fetched successfully.
 No pending command.
-Wi-Fi OK. IP=... RSSI=... dBm Laravel=reachable
 ```
 
-If you send a dashboard watering command during Milestone 3, expected output should include:
+When you send a dashboard watering command, expected output should include:
 
 ```text
 Command found: #... type=valve_on
-Milestone 3 safety: valve command received but GPIO valve control is not enabled yet.
-POST http://.../api/device/commands/.../ack
-POST HTTP status: 200
-Command #... marked as failed
+Command #... marked as acknowledged
+Valve ON - dashboard command
+Command #... marked as executed
+Valve ON command executed.
+```
+
+When you send a stop command, expected output should include:
+
+```text
+Command found: #... type=valve_off
+Command #... marked as acknowledged
+Valve OFF - dashboard command
+Command #... marked as executed
+Valve OFF command executed.
 ```
 
 ## Next milestone
 
-Milestone 4 should add valve control only:
+Milestone 5 should add soil moisture sensor first:
 
-- GPIO5 output
-- safe default OFF on boot
-- `valve_on` command support
-- `valve_off` command support
-- command ACK flow: `acknowledged` then `executed` or `failed`
-- watering LED mirrors valve because it is physically tied to GPIO5
+- GPIO1 ADC input
+- disconnected sensor handling
+- raw ADC logging
+- calibration values for ESP32-C3
+- readings upload only after local reading is stable
 
-Do not add sensors/OLED/RTC in Milestone 4.
+Do not add DHT11/OLED/RTC before soil moisture is stable.
