@@ -32,6 +32,10 @@ unsigned long lastCommandPollAt = 0;
 ApiClient apiClient;
 bool serverReachableRecently = false;
 bool valveIsOn = false;
+bool wateringActive = false;
+int activeCommandId = 0;
+unsigned long wateringStartedAt = 0;
+unsigned long wateringDurationMs = 0;
 
 String serverTimeUtc = "";
 String serverTimeLocal = "";
@@ -79,10 +83,19 @@ void setValveOn(const char *reason)
   Serial.println();
 }
 
+void clearWateringRuntime()
+{
+  wateringActive = false;
+  activeCommandId = 0;
+  wateringStartedAt = 0;
+  wateringDurationMs = 0;
+}
+
 void beginValveOutput()
 {
   pinMode(VALVE_PIN, OUTPUT);
   setValveOff("safe boot default");
+  clearWateringRuntime();
 }
 
 void printBootInfo()
@@ -290,6 +303,8 @@ void printConfigSummary()
   Serial.println(serverTimeLocal.length() ? serverTimeLocal : "missing");
   Serial.print("  valve_state: ");
   Serial.println(valveIsOn ? "on" : "off");
+  Serial.print("  watering_active: ");
+  Serial.println(wateringActive ? "yes" : "no");
 }
 
 bool parseConfigResponse(const String &response)
@@ -424,34 +439,96 @@ void handleValveOnCommand(int commandId, JsonObject command)
   Serial.print("Valve ON command duration_seconds: ");
   Serial.println(durationSeconds);
 
+  if (wateringActive)
+  {
+    Serial.println("Valve ON rejected: already watering.");
+    ackCommand(commandId, "failed", "Device is already watering.");
+    return;
+  }
+
+  if (durationSeconds <= 0)
+  {
+    Serial.println("Valve ON rejected: invalid duration.");
+    ackCommand(commandId, "failed", "Invalid duration_seconds.");
+    return;
+  }
+
   if (!ackCommand(commandId, "acknowledged"))
   {
     Serial.println("Valve ON aborted: could not acknowledge command.");
     return;
   }
 
-  setValveOn("dashboard command");
+  activeCommandId = commandId;
+  wateringStartedAt = millis();
+  wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
+  wateringActive = true;
 
-  if (ackCommand(commandId, "executed"))
+  setValveOn("dashboard command");
+  Serial.print("Watering will auto-stop after seconds: ");
+  Serial.println(durationSeconds);
+}
+
+void completeActiveWatering(const char *reason)
+{
+  int completedCommandId = activeCommandId;
+
+  setValveOff(reason);
+  clearWateringRuntime();
+
+  if (completedCommandId > 0)
   {
-    Serial.println("Valve ON command executed.");
+    if (ackCommand(completedCommandId, "executed"))
+    {
+      Serial.print("Valve ON command completed and executed: #");
+      Serial.println(completedCommandId);
+    }
   }
 }
 
 void handleValveOffCommand(int commandId)
 {
+  int interruptedCommandId = activeCommandId;
+
   if (!ackCommand(commandId, "acknowledged"))
   {
     Serial.println("Valve OFF aborted: could not acknowledge command.");
     return;
   }
 
-  setValveOff("dashboard command");
+  setValveOff("dashboard stop command");
+  clearWateringRuntime();
+
+  if (interruptedCommandId > 0 && interruptedCommandId != commandId)
+  {
+    Serial.print("Closing interrupted valve_on command: #");
+    Serial.println(interruptedCommandId);
+    ackCommand(interruptedCommandId, "executed");
+  }
 
   if (ackCommand(commandId, "executed"))
   {
     Serial.println("Valve OFF command executed.");
   }
+}
+
+void updateWateringState()
+{
+  if (!wateringActive)
+  {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  if (now - wateringStartedAt < wateringDurationMs)
+  {
+    return;
+  }
+
+  Serial.println();
+  Serial.println("Watering duration completed.");
+  completeActiveWatering("duration completed");
 }
 
 void handleCommand(JsonObject command)
@@ -551,7 +628,9 @@ void logWifiStatusIfNeeded(unsigned long now)
   Serial.print(" dBm Laravel=");
   Serial.print(serverReachableRecently ? "reachable" : "not-confirmed");
   Serial.print(" Valve=");
-  Serial.println(valveIsOn ? "on" : "off");
+  Serial.print(valveIsOn ? "on" : "off");
+  Serial.print(" Watering=");
+  Serial.println(wateringActive ? "active" : "idle");
 
   lastWifiStatusLogAt = now;
 }
@@ -592,6 +671,8 @@ void setup()
 void loop()
 {
   unsigned long now = millis();
+
+  updateWateringState();
 
   if (!isWifiConnected())
   {
