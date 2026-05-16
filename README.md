@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control and Plant Bed state sync.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control, Plant Bed state sync, and C3 network responsiveness tuning.
 
-## Current scope: Milestone 4.4
+## Current scope: Milestone 4.5
 
 Included now:
 
@@ -19,10 +19,19 @@ Included now:
 - 15 second Wi-Fi connection timeout
 - 10 second Wi-Fi retry interval
 - 20 ms cooperative loop delay
+- HTTP connect timeout: 1000 ms
+- HTTP response timeout: 1500 ms
+- server reachable window: 15000 ms
+- online heartbeat interval: 15 seconds
+- online command poll interval: 5 seconds
+- online config fetch interval: 60 seconds
+- offline heartbeat retry interval: 30 seconds
+- offline command poll retry interval: 30 seconds
+- offline config fetch retry interval: 120 seconds
 - Minimal `ApiClient`
-- `POST /api/device/heartbeat` every 15 seconds
-- `GET /api/device/config?device_uuid=...` every 60 seconds
-- `GET /api/device/commands?device_uuid=...` every 5 seconds
+- `POST /api/device/heartbeat`
+- `GET /api/device/config?device_uuid=...`
+- `GET /api/device/commands?device_uuid=...`
 - `POST /api/device/commands/{id}/ack` helper
 - `POST /api/device/state` Plant Bed state sync
 - GPIO5 valve output, active HIGH
@@ -42,6 +51,33 @@ Not included yet:
 - automatic local watering
 - schedule fallback execution
 
+## Network responsiveness
+
+Milestone 4.5 moves the C3 firmware closer to the original Plant Bed network behavior:
+
+```text
+HTTP connect timeout  = 1000 ms
+HTTP response timeout = 1500 ms
+```
+
+When Laravel is recently reachable, API work stays responsive:
+
+```text
+heartbeat     every 15 seconds
+command poll  every 5 seconds
+config fetch   every 60 seconds
+```
+
+When Laravel is not recently reachable, retries slow down:
+
+```text
+heartbeat retry     every 30 seconds
+command poll retry  every 30 seconds
+config fetch retry  every 120 seconds
+```
+
+This protects the single-core ESP32-C3 from spending too much time blocked on failed network calls once local controls are added.
+
 ## Plant Bed state sync
 
 The firmware syncs actual device state to Laravel using:
@@ -56,7 +92,7 @@ Payload shape:
 {
   "device_uuid": "...",
   "device_type": "plant_bed_controller",
-  "firmware_version": "smart-plant-bed-c3-m4-0.4",
+  "firmware_version": "smart-plant-bed-c3-m4-0.5",
   "operation_state": "idle",
   "valve_state": "closed",
   "watering_state": "idle"
@@ -181,7 +217,7 @@ Expected boot output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m4-0.4
+Firmware version: smart-plant-bed-c3-m4-0.5
 Valve OFF - safe boot default
 Valve GPIO: 5
 Wi-Fi connected.
@@ -229,11 +265,6 @@ Device state synced successfully.
 
 ## Next milestone
 
-Before adding more hardware, improve C3 network responsiveness toward the old Plant Bed model:
+After Milestone 4.5 passes, add the manual watering button on GPIO3.
 
-- shorter HTTP connect/response timeouts
-- better server reachability window
-- slower offline API retry behavior
-- keep local watering updates responsive
-
-Then add the manual watering button on GPIO3.
+Do not add sensors/OLED/RTC before manual valve control is stable.
