@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. The first target is stable ESP32-C3 Wi-Fi station mode before adding Laravel API calls, sensors, OLED, RTC, buttons, or customer setup portal.
+This repository intentionally starts small. The first target was stable ESP32-C3 Wi-Fi station mode. Milestone 2 now adds Laravel heartbeat only, without sensors, OLED, RTC, valve control, command polling, config fetch, or setup portal.
 
-## Milestone 1 scope
+## Current scope: Milestone 2
 
 Included now:
 
@@ -19,11 +19,14 @@ Included now:
 - 20 ms cooperative loop delay
 - Serial boot diagnostics
 - Serial Wi-Fi status logs
+- Minimal `ApiClient`
+- `POST /api/device/heartbeat`
+- `X-DEVICE-KEY` header
+- 7 second HTTP timeout
+- 15 second heartbeat interval
 
 Not included yet:
 
-- Laravel API
-- heartbeat
 - config fetch
 - command polling
 - valve control
@@ -57,8 +60,8 @@ Planned future pin map:
 - ESP32-C3 GPIO pins are not 5V tolerant.
 - Do not connect DS1307 I2C pullups to 5V.
 - DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
-- Do not connect all modules during Milestone 1. Test the bare C3 first.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi is stable.
+- Do not connect all modules during early milestones. Test the bare C3 first.
+- Do not enable setup portal/AP+STA until normal station Wi-Fi and heartbeat are stable.
 
 ## Local secrets setup
 
@@ -73,9 +76,15 @@ Edit `include/DeviceSecrets.h`:
 ```cpp
 #define WIFI_SSID "Your WiFi Name"
 #define WIFI_PASSWORD "Your WiFi Password"
+
+#define API_BASE_URL "http://192.168.0.xxx:8000"
+#define DEVICE_UUID "Your Laravel device UUID"
+#define DEVICE_API_KEY "Your Laravel device API key"
 ```
 
 `include/DeviceSecrets.h` is ignored by Git.
+
+Use your Mac LAN IP for `API_BASE_URL`, not `localhost`, because the ESP32-C3 is a separate device on the network.
 
 ## Build, upload, and test
 
@@ -92,24 +101,26 @@ Expected serial output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m1-0.1
+Firmware version: smart-plant-bed-c3-m2-0.1
 Connecting Wi-Fi: ...
 Wi-Fi connected.
 IP address: ...
-Wi-Fi OK. IP=... RSSI=... dBm
+POST http://.../api/device/heartbeat
+Heartbeat HTTP status: 200
+Heartbeat sent successfully.
+Wi-Fi OK. IP=... RSSI=... dBm Laravel=reachable
 ```
 
 If upload works but serial monitor is blank, press the board reset button once while the monitor is open.
 
 ## Next milestone
 
-Milestone 2 should add Laravel heartbeat only:
+Milestone 3 should add config fetch and command polling only:
 
-- `API_BASE_URL`
-- `DEVICE_UUID`
-- `DEVICE_API_KEY`
-- shared device headers
-- `POST /api/device/heartbeat`
-- no sensors, no config polling, no valve yet
+- `GET /api/device/config?device_uuid=...`
+- compact config cache
+- `GET /api/device/commands?device_uuid=...`
+- command ACK helper
+- no valve hardware action until Milestone 4
 
-Keep Milestone 2 small so Wi-Fi instability and API problems are easy to separate.
+Keep Milestone 3 small so API parsing problems and valve hardware problems are easy to separate.
