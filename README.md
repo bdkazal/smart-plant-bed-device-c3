@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds GPIO5 valve control only.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control.
 
-## Current scope: Milestone 4
+## Current scope: Milestone 4.3
 
 Included now:
 
@@ -12,8 +12,10 @@ Included now:
 - Arduino framework
 - Native USB serial flags for ESP32-C3
 - Fixed local Wi-Fi credentials through `include/DeviceSecrets.h`
-- `WiFi.mode(WIFI_STA)`
-- `WiFi.setTxPower(WIFI_POWER_8_5dBm)`
+- Smart Fountain-style C3 Wi-Fi:
+  - `WiFi.mode(WIFI_STA)`
+  - `WiFi.setTxPower(WIFI_POWER_8_5dBm)`
+  - no forced `WiFi.setSleep(false)`
 - 15 second Wi-Fi connection timeout
 - 10 second Wi-Fi retry interval
 - 20 ms cooperative loop delay
@@ -26,7 +28,7 @@ Included now:
 - safe valve OFF on boot
 - `valve_on` command support
 - `valve_off` command support
-- command ACK flow: `acknowledged` then `executed`
+- duration-based auto-stop for `valve_on`
 - watering LED mirrors valve if physically connected to GPIO5 through resistor
 
 Not included yet:
@@ -38,6 +40,28 @@ Not included yet:
 - AP+STA scanning
 - automatic local watering
 - schedule fallback execution
+
+## Milestone 4 valve behavior
+
+`valve_on` behavior:
+
+1. Firmware receives command.
+2. Firmware validates duration.
+3. Firmware ACKs command as `acknowledged`.
+4. GPIO5 goes HIGH.
+5. Device keeps watering active until duration completes.
+6. GPIO5 goes LOW automatically.
+7. Firmware marks the original `valve_on` command as `executed`.
+
+`valve_off` behavior:
+
+1. Firmware receives stop command.
+2. Firmware ACKs stop command as `acknowledged`.
+3. GPIO5 goes LOW immediately.
+4. Any active `valve_on` command is closed as `executed`.
+5. Stop command is marked as `executed`.
+
+This matches the original Plant Bed runtime idea: a watering command is not marked executed until watering actually ends.
 
 ## Milestone 4 safety rule
 
@@ -117,7 +141,7 @@ Expected boot output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m4-0.1
+Firmware version: smart-plant-bed-c3-m4-0.3
 Valve OFF - safe boot default
 Valve GPIO: 5
 Wi-Fi connected.
@@ -129,18 +153,28 @@ When you send a dashboard watering command, expected output should include:
 
 ```text
 Command found: #... type=valve_on
+Valve ON command duration_seconds: ...
 Command #... marked as acknowledged
 Valve ON - dashboard command
-Command #... marked as executed
-Valve ON command executed.
+Watering will auto-stop after seconds: ...
 ```
 
-When you send a stop command, expected output should include:
+After the duration completes, expected output should include:
+
+```text
+Watering duration completed.
+Valve OFF - duration completed
+Command #... marked as executed
+Valve ON command completed and executed: #...
+```
+
+When you send a stop command during active watering, expected output should include:
 
 ```text
 Command found: #... type=valve_off
 Command #... marked as acknowledged
-Valve OFF - dashboard command
+Valve OFF - dashboard stop command
+Closing interrupted valve_on command: #...
 Command #... marked as executed
 Valve OFF command executed.
 ```
