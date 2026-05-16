@@ -7,8 +7,12 @@
 #include "DeviceSecrets.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m3-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m4-dev"
 #endif
+
+const int VALVE_PIN = 5;
+const int VALVE_ON_LEVEL = HIGH;
+const int VALVE_OFF_LEVEL = LOW;
 
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
@@ -27,6 +31,7 @@ unsigned long lastCommandPollAt = 0;
 
 ApiClient apiClient;
 bool serverReachableRecently = false;
+bool valveIsOn = false;
 
 String serverTimeUtc = "";
 String serverTimeLocal = "";
@@ -46,6 +51,40 @@ bool isWifiConnected()
   return WiFi.status() == WL_CONNECTED;
 }
 
+void setValveOff(const char *reason)
+{
+  digitalWrite(VALVE_PIN, VALVE_OFF_LEVEL);
+  valveIsOn = false;
+
+  Serial.print("Valve OFF");
+  if (reason != nullptr && strlen(reason) > 0)
+  {
+    Serial.print(" - ");
+    Serial.print(reason);
+  }
+  Serial.println();
+}
+
+void setValveOn(const char *reason)
+{
+  digitalWrite(VALVE_PIN, VALVE_ON_LEVEL);
+  valveIsOn = true;
+
+  Serial.print("Valve ON");
+  if (reason != nullptr && strlen(reason) > 0)
+  {
+    Serial.print(" - ");
+    Serial.print(reason);
+  }
+  Serial.println();
+}
+
+void beginValveOutput()
+{
+  pinMode(VALVE_PIN, OUTPUT);
+  setValveOff("safe boot default");
+}
+
 void printBootInfo()
 {
   Serial.println();
@@ -62,6 +101,8 @@ void printBootInfo()
   Serial.println(ESP.getFlashChipSize());
   Serial.print("SDK version: ");
   Serial.println(ESP.getSdkVersion());
+  Serial.print("Valve GPIO: ");
+  Serial.println(VALVE_PIN);
 }
 
 void connectWifi()
@@ -246,6 +287,8 @@ void printConfigSummary()
   Serial.println(serverTimeUtc.length() ? serverTimeUtc : "missing");
   Serial.print("  server_time_local: ");
   Serial.println(serverTimeLocal.length() ? serverTimeLocal : "missing");
+  Serial.print("  valve_state: ");
+  Serial.println(valveIsOn ? "on" : "off");
 }
 
 bool parseConfigResponse(const String &response)
@@ -351,6 +394,65 @@ bool ackCommand(int commandId, const char *status, const char *message = nullptr
   return false;
 }
 
+int commandDurationSeconds(JsonObject command)
+{
+  int duration = command["payload"]["duration_seconds"] | configMaxWateringDurationSeconds;
+
+  if (duration <= 0)
+  {
+    duration = configMaxWateringDurationSeconds;
+  }
+
+  if (duration > configMaxWateringDurationSeconds)
+  {
+    duration = configMaxWateringDurationSeconds;
+  }
+
+  if (duration <= 0)
+  {
+    duration = 30;
+  }
+
+  return duration;
+}
+
+void handleValveOnCommand(int commandId, JsonObject command)
+{
+  int durationSeconds = commandDurationSeconds(command);
+
+  Serial.print("Valve ON command duration_seconds: ");
+  Serial.println(durationSeconds);
+
+  if (!ackCommand(commandId, "acknowledged"))
+  {
+    Serial.println("Valve ON aborted: could not acknowledge command.");
+    return;
+  }
+
+  setValveOn("dashboard command");
+
+  if (ackCommand(commandId, "executed"))
+  {
+    Serial.println("Valve ON command executed.");
+  }
+}
+
+void handleValveOffCommand(int commandId)
+{
+  if (!ackCommand(commandId, "acknowledged"))
+  {
+    Serial.println("Valve OFF aborted: could not acknowledge command.");
+    return;
+  }
+
+  setValveOff("dashboard command");
+
+  if (ackCommand(commandId, "executed"))
+  {
+    Serial.println("Valve OFF command executed.");
+  }
+}
+
 void handleCommand(JsonObject command)
 {
   int commandId = command["id"] | 0;
@@ -379,15 +481,20 @@ void handleCommand(JsonObject command)
 
   String type = commandType;
 
-  if (type == "valve_on" || type == "valve_off")
+  if (type == "valve_on")
   {
-    Serial.println("Milestone 3 safety: valve command received but GPIO valve control is not enabled yet.");
-    ackCommand(commandId, "failed", "ESP32-C3 Milestone 3 received command, but valve GPIO control is not enabled yet.");
+    handleValveOnCommand(commandId, command);
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 3.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 3.");
+  if (type == "valve_off")
+  {
+    handleValveOffCommand(commandId);
+    return;
+  }
+
+  Serial.println("Unsupported command type for Milestone 4.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 4.");
 }
 
 bool pollCommands()
@@ -441,7 +548,9 @@ void logWifiStatusIfNeeded(unsigned long now)
   Serial.print(" RSSI=");
   Serial.print(WiFi.RSSI());
   Serial.print(" dBm Laravel=");
-  Serial.println(serverReachableRecently ? "reachable" : "not-confirmed");
+  Serial.print(serverReachableRecently ? "reachable" : "not-confirmed");
+  Serial.print(" Valve=");
+  Serial.println(valveIsOn ? "on" : "off");
 
   lastWifiStatusLogAt = now;
 }
@@ -463,6 +572,7 @@ void setup()
   Serial.begin(115200);
   delay(1000);
 
+  beginValveOutput();
   printBootInfo();
   apiClient.begin(API_BASE_URL, DEVICE_API_KEY);
 
