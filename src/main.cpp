@@ -23,16 +23,22 @@ const unsigned long WIFI_STATUS_LOG_INTERVAL_MS = 10000;
 const unsigned long HEARTBEAT_INTERVAL_MS = 15000;
 const unsigned long CONFIG_FETCH_INTERVAL_MS = 60000;
 const unsigned long COMMAND_POLL_INTERVAL_MS = 5000;
-const int HTTP_TIMEOUT_MS = 7000;
+const unsigned long OFFLINE_HEARTBEAT_INTERVAL_MS = 30000;
+const unsigned long OFFLINE_COMMAND_POLL_INTERVAL_MS = 30000;
+const unsigned long OFFLINE_CONFIG_FETCH_INTERVAL_MS = 120000;
+const unsigned long SERVER_REACHABLE_WINDOW_MS = 15000;
+const int HTTP_CONNECT_TIMEOUT_MS = 1000;
+const int HTTP_RESPONSE_TIMEOUT_MS = 1500;
 
 unsigned long lastWifiRetryAt = 0;
 unsigned long lastWifiStatusLogAt = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastConfigFetchAt = 0;
 unsigned long lastCommandPollAt = 0;
+unsigned long lastServerSuccessAt = 0;
 
 ApiClient apiClient;
-bool serverReachableRecently = false;
+bool serverReachable = false;
 bool valveIsOn = false;
 bool wateringActive = false;
 int activeCommandId = 0;
@@ -55,6 +61,60 @@ int configSoilMoistureThreshold = 0;
 bool isWifiConnected()
 {
   return WiFi.status() == WL_CONNECTED;
+}
+
+bool isServerRecentlyReachable()
+{
+  if (!isWifiConnected() || !serverReachable)
+  {
+    return false;
+  }
+
+  return millis() - lastServerSuccessAt <= SERVER_REACHABLE_WINDOW_MS;
+}
+
+void markServerResult(int statusCode)
+{
+  if (statusCode >= 200 && statusCode < 300)
+  {
+    serverReachable = true;
+    lastServerSuccessAt = millis();
+    return;
+  }
+
+  if (statusCode < 0)
+  {
+    serverReachable = false;
+  }
+
+  // A non-2xx HTTP response still means Laravel answered.
+  // Only connection/timeout errors use negative status codes and mark server unavailable.
+}
+
+void markServerUnavailable()
+{
+  serverReachable = false;
+}
+
+unsigned long heartbeatIntervalForCurrentReachability()
+{
+  return isServerRecentlyReachable() ? HEARTBEAT_INTERVAL_MS : OFFLINE_HEARTBEAT_INTERVAL_MS;
+}
+
+unsigned long commandPollIntervalForCurrentReachability()
+{
+  return isServerRecentlyReachable() ? COMMAND_POLL_INTERVAL_MS : OFFLINE_COMMAND_POLL_INTERVAL_MS;
+}
+
+unsigned long configFetchIntervalForCurrentReachability()
+{
+  return isServerRecentlyReachable() ? CONFIG_FETCH_INTERVAL_MS : OFFLINE_CONFIG_FETCH_INTERVAL_MS;
+}
+
+void prepareHttpClient(HTTPClient &http)
+{
+  http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+  http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
 }
 
 void setValveOff(const char *reason)
@@ -154,6 +214,7 @@ void connectWifi()
   {
     Serial.println("Wi-Fi connection failed. Device will retry later.");
     WiFi.disconnect(false);
+    markServerUnavailable();
   }
 }
 
@@ -164,12 +225,13 @@ bool httpGetJson(const String &url, String &response, int &statusCode)
 
   if (!isWifiConnected())
   {
+    markServerUnavailable();
     Serial.println("GET skipped: Wi-Fi offline.");
     return false;
   }
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  prepareHttpClient(http);
   http.begin(url);
   apiClient.addDeviceHeaders(http);
 
@@ -181,12 +243,13 @@ bool httpGetJson(const String &url, String &response, int &statusCode)
   response = http.getString();
   http.end();
 
+  markServerResult(statusCode);
+
   Serial.print("GET HTTP status: ");
   Serial.println(statusCode);
 
   if (statusCode >= 200 && statusCode < 300)
   {
-    serverReachableRecently = true;
     return true;
   }
 
@@ -196,7 +259,6 @@ bool httpGetJson(const String &url, String &response, int &statusCode)
     Serial.println(response);
   }
 
-  serverReachableRecently = false;
   return false;
 }
 
@@ -207,12 +269,13 @@ bool httpPostJson(const String &url, const String &payload, String &response, in
 
   if (!isWifiConnected())
   {
+    markServerUnavailable();
     Serial.println("POST skipped: Wi-Fi offline.");
     return false;
   }
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  prepareHttpClient(http);
   http.begin(url);
   apiClient.addDeviceHeaders(http);
 
@@ -226,6 +289,8 @@ bool httpPostJson(const String &url, const String &payload, String &response, in
   response = http.getString();
   http.end();
 
+  markServerResult(statusCode);
+
   Serial.print("POST HTTP status: ");
   Serial.println(statusCode);
 
@@ -235,14 +300,7 @@ bool httpPostJson(const String &url, const String &payload, String &response, in
     Serial.println(response);
   }
 
-  if (statusCode >= 200 && statusCode < 300)
-  {
-    serverReachableRecently = true;
-    return true;
-  }
-
-  serverReachableRecently = false;
-  return false;
+  return statusCode >= 200 && statusCode < 300;
 }
 
 String buildHeartbeatPayload()
@@ -401,7 +459,6 @@ bool fetchConfig()
 
   if (!parseConfigResponse(response))
   {
-    serverReachableRecently = false;
     return false;
   }
 
@@ -671,7 +728,7 @@ void logWifiStatusIfNeeded(unsigned long now)
   Serial.print(" RSSI=");
   Serial.print(WiFi.RSSI());
   Serial.print(" dBm Laravel=");
-  Serial.print(serverReachableRecently ? "reachable" : "not-confirmed");
+  Serial.print(isServerRecentlyReachable() ? "reachable" : "not-confirmed");
   Serial.print(" Valve=");
   Serial.print(valveIsOn ? "on" : "off");
   Serial.print(" Watering=");
@@ -722,7 +779,7 @@ void loop()
 
   if (!isWifiConnected())
   {
-    serverReachableRecently = false;
+    markServerUnavailable();
 
     if (now - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS)
     {
@@ -742,7 +799,7 @@ void loop()
 
   logWifiStatusIfNeeded(now);
 
-  if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS)
+  if (now - lastHeartbeatAt >= heartbeatIntervalForCurrentReachability())
   {
     sendHeartbeat();
     lastHeartbeatAt = millis();
@@ -750,7 +807,7 @@ void loop()
 
   now = millis();
 
-  if (now - lastCommandPollAt >= COMMAND_POLL_INTERVAL_MS)
+  if (now - lastCommandPollAt >= commandPollIntervalForCurrentReachability())
   {
     pollCommands();
     lastCommandPollAt = millis();
@@ -758,7 +815,7 @@ void loop()
 
   now = millis();
 
-  if (now - lastConfigFetchAt >= CONFIG_FETCH_INTERVAL_MS)
+  if (now - lastConfigFetchAt >= configFetchIntervalForCurrentReachability())
   {
     fetchConfig();
     lastConfigFetchAt = millis();
