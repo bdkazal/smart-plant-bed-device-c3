@@ -5,17 +5,12 @@
 
 #include "ApiClient.h"
 #include "DeviceSecrets.h"
+#include "ManualButton.h"
+#include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "smart-plant-bed-c3-m5-dev"
 #endif
-
-const int VALVE_PIN = 5;
-const int VALVE_ON_LEVEL = HIGH;
-const int VALVE_OFF_LEVEL = LOW;
-
-const int MANUAL_WATER_BUTTON_PIN = 3;
-const unsigned long BUTTON_DEBOUNCE_MS = 50;
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
 
@@ -40,17 +35,8 @@ unsigned long lastConfigFetchAt = 0;
 unsigned long lastCommandPollAt = 0;
 unsigned long lastServerSuccessAt = 0;
 
-bool lastManualButtonReading = HIGH;
-bool stableManualButtonState = HIGH;
-unsigned long lastManualButtonChangeAt = 0;
-
 ApiClient apiClient;
 bool serverReachable = false;
-bool valveIsOn = false;
-bool wateringActive = false;
-int activeCommandId = 0;
-unsigned long wateringStartedAt = 0;
-unsigned long wateringDurationMs = 0;
 
 String serverTimeUtc = "";
 String serverTimeLocal = "";
@@ -124,64 +110,6 @@ void prepareHttpClient(HTTPClient &http)
   http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
 }
 
-void setValveOff(const char *reason)
-{
-  digitalWrite(VALVE_PIN, VALVE_OFF_LEVEL);
-  valveIsOn = false;
-
-  Serial.print("Valve OFF");
-  if (reason != nullptr && strlen(reason) > 0)
-  {
-    Serial.print(" - ");
-    Serial.print(reason);
-  }
-  Serial.println();
-}
-
-void setValveOn(const char *reason)
-{
-  digitalWrite(VALVE_PIN, VALVE_ON_LEVEL);
-  valveIsOn = true;
-
-  Serial.print("Valve ON");
-  if (reason != nullptr && strlen(reason) > 0)
-  {
-    Serial.print(" - ");
-    Serial.print(reason);
-  }
-  Serial.println();
-}
-
-void clearWateringRuntime()
-{
-  wateringActive = false;
-  activeCommandId = 0;
-  wateringStartedAt = 0;
-  wateringDurationMs = 0;
-}
-
-void beginValveOutput()
-{
-  pinMode(VALVE_PIN, OUTPUT);
-  setValveOff("safe boot default");
-  clearWateringRuntime();
-}
-
-void beginManualButton()
-{
-  pinMode(MANUAL_WATER_BUTTON_PIN, INPUT_PULLUP);
-
-  lastManualButtonReading = digitalRead(MANUAL_WATER_BUTTON_PIN);
-  stableManualButtonState = lastManualButtonReading;
-  lastManualButtonChangeAt = millis();
-
-  Serial.println();
-  Serial.println("Manual watering button initialized.");
-  Serial.print("Manual button GPIO: ");
-  Serial.println(MANUAL_WATER_BUTTON_PIN);
-  Serial.println("Button mode: INPUT_PULLUP, press connects GPIO to GND");
-}
-
 void printBootInfo()
 {
   Serial.println();
@@ -199,7 +127,7 @@ void printBootInfo()
   Serial.print("SDK version: ");
   Serial.println(ESP.getSdkVersion());
   Serial.print("Valve GPIO: ");
-  Serial.println(VALVE_PIN);
+  Serial.println(5);
 }
 
 void connectWifi()
@@ -351,15 +279,15 @@ bool sendHeartbeat()
   return false;
 }
 
-String buildDeviceStatePayload(int lastCompletedCommandId = 0)
+String buildDeviceStatePayload(int lastCompletedCommandId)
 {
   JsonDocument doc;
   doc["device_uuid"] = DEVICE_UUID;
   doc["device_type"] = DEVICE_TYPE;
   doc["firmware_version"] = FIRMWARE_VERSION;
-  doc["operation_state"] = wateringActive ? "watering" : "idle";
-  doc["valve_state"] = valveIsOn ? "open" : "closed";
-  doc["watering_state"] = wateringActive ? "watering" : "idle";
+  doc["operation_state"] = isWateringActive() ? "watering" : "idle";
+  doc["valve_state"] = isValveOpen() ? "open" : "closed";
+  doc["watering_state"] = isWateringActive() ? "watering" : "idle";
 
   if (lastCompletedCommandId > 0)
   {
@@ -371,7 +299,7 @@ String buildDeviceStatePayload(int lastCompletedCommandId = 0)
   return payload;
 }
 
-bool syncDeviceState(int lastCompletedCommandId = 0)
+bool syncDeviceState(int lastCompletedCommandId)
 {
   String response;
   int statusCode;
@@ -388,7 +316,7 @@ bool syncDeviceState(int lastCompletedCommandId = 0)
   return false;
 }
 
-void syncDeviceStateIfServerReachable(int lastCompletedCommandId = 0)
+void syncDeviceStateIfServerReachable(int lastCompletedCommandId)
 {
   if (!isServerRecentlyReachable())
   {
@@ -432,9 +360,9 @@ void printConfigSummary()
   Serial.print("  server_time_local: ");
   Serial.println(serverTimeLocal.length() ? serverTimeLocal : "missing");
   Serial.print("  valve_state: ");
-  Serial.println(valveIsOn ? "on" : "off");
+  Serial.println(isValveOpen() ? "on" : "off");
   Serial.print("  watering_active: ");
-  Serial.println(wateringActive ? "yes" : "no");
+  Serial.println(isWateringActive() ? "yes" : "no");
 }
 
 bool parseConfigResponse(const String &response)
@@ -499,7 +427,7 @@ bool fetchConfig()
   return true;
 }
 
-String buildAckPayload(const char *status, const char *message = nullptr)
+String buildAckPayload(const char *status, const char *message)
 {
   JsonDocument doc;
   doc["device_uuid"] = DEVICE_UUID;
@@ -515,7 +443,7 @@ String buildAckPayload(const char *status, const char *message = nullptr)
   return payload;
 }
 
-bool ackCommand(int commandId, const char *status, const char *message = nullptr)
+bool ackCommand(int commandId, const char *status, const char *message)
 {
   String response;
   int statusCode;
@@ -571,227 +499,6 @@ int getLocalManualDurationSeconds()
   return 30;
 }
 
-void startLocalWatering(int durationSeconds)
-{
-  if (wateringActive)
-  {
-    Serial.println("Local watering request ignored: already watering.");
-    return;
-  }
-
-  if (durationSeconds <= 0)
-  {
-    Serial.println("Local watering request ignored: invalid duration.");
-    return;
-  }
-
-  Serial.println();
-  Serial.println("Starting local watering.");
-
-  activeCommandId = 0;
-  wateringStartedAt = millis();
-  wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
-  wateringActive = true;
-
-  setValveOn("manual button");
-  syncDeviceStateIfServerReachable(0);
-
-  Serial.print("Local watering duration seconds: ");
-  Serial.println(durationSeconds);
-}
-
-void stopLocalWatering()
-{
-  if (!wateringActive)
-  {
-    Serial.println("Local stop ignored: device is not watering.");
-    return;
-  }
-
-  Serial.println();
-  Serial.println("Stopping watering from physical button.");
-
-  int stoppedCommandId = activeCommandId;
-
-  setValveOff("manual button stop");
-  clearWateringRuntime();
-
-  if (stoppedCommandId > 0)
-  {
-    Serial.print("Physical button stopped Laravel command: ");
-    Serial.println(stoppedCommandId);
-
-    bool executed = ackCommand(stoppedCommandId, "executed");
-
-    if (!executed)
-    {
-      Serial.println("Warning: failed to mark stopped Laravel command as executed.");
-    }
-
-    syncDeviceState(stoppedCommandId);
-    return;
-  }
-
-  syncDeviceStateIfServerReachable(0);
-}
-
-void handleManualButtonPress()
-{
-  Serial.println();
-  Serial.println("Manual watering button pressed.");
-
-  if (wateringActive)
-  {
-    stopLocalWatering();
-    return;
-  }
-
-  startLocalWatering(getLocalManualDurationSeconds());
-}
-
-void updateManualButton()
-{
-  bool currentReading = digitalRead(MANUAL_WATER_BUTTON_PIN);
-  unsigned long now = millis();
-
-  if (currentReading != lastManualButtonReading)
-  {
-    lastManualButtonChangeAt = now;
-    lastManualButtonReading = currentReading;
-  }
-
-  if (now - lastManualButtonChangeAt < BUTTON_DEBOUNCE_MS)
-  {
-    return;
-  }
-
-  if (currentReading == stableManualButtonState)
-  {
-    return;
-  }
-
-  stableManualButtonState = currentReading;
-
-  if (stableManualButtonState == LOW)
-  {
-    handleManualButtonPress();
-  }
-}
-
-void handleValveOnCommand(int commandId, JsonObject command)
-{
-  int durationSeconds = commandDurationSeconds(command);
-
-  Serial.print("Valve ON command duration_seconds: ");
-  Serial.println(durationSeconds);
-
-  if (wateringActive)
-  {
-    Serial.println("Valve ON rejected: already watering.");
-    ackCommand(commandId, "failed", "Device is already watering.");
-    return;
-  }
-
-  if (durationSeconds <= 0)
-  {
-    Serial.println("Valve ON rejected: invalid duration.");
-    ackCommand(commandId, "failed", "Invalid duration_seconds.");
-    return;
-  }
-
-  activeCommandId = commandId;
-  wateringStartedAt = millis();
-  wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
-  wateringActive = true;
-
-  setValveOn("dashboard command");
-  syncDeviceState(0);
-
-  bool acknowledged = ackCommand(commandId, "acknowledged");
-
-  if (!acknowledged)
-  {
-    Serial.println("Warning: failed to send acknowledged ack. Local watering still started.");
-  }
-
-  Serial.print("Watering will auto-stop after seconds: ");
-  Serial.println(durationSeconds);
-}
-
-void completeActiveWatering(const char *reason)
-{
-  int completedCommandId = activeCommandId;
-
-  setValveOff(reason);
-  clearWateringRuntime();
-
-  if (completedCommandId > 0)
-  {
-    if (ackCommand(completedCommandId, "executed"))
-    {
-      Serial.print("Valve ON command completed and executed: #");
-      Serial.println(completedCommandId);
-    }
-
-    syncDeviceState(completedCommandId);
-    return;
-  }
-
-  syncDeviceStateIfServerReachable(0);
-}
-
-void handleValveOffCommand(int commandId)
-{
-  int interruptedCommandId = activeCommandId;
-
-  setValveOff("dashboard stop command");
-  clearWateringRuntime();
-
-  if (interruptedCommandId > 0 && interruptedCommandId != commandId)
-  {
-    Serial.print("Closing interrupted valve_on command: #");
-    Serial.println(interruptedCommandId);
-    ackCommand(interruptedCommandId, "executed");
-  }
-
-  bool acknowledged = ackCommand(commandId, "acknowledged");
-
-  if (!acknowledged)
-  {
-    Serial.println("Warning: failed to send acknowledged ack for valve_off.");
-  }
-
-  if (ackCommand(commandId, "executed"))
-  {
-    Serial.println("Valve OFF command executed.");
-  }
-  else
-  {
-    Serial.println("Warning: failed to send executed ack for valve_off.");
-  }
-
-  syncDeviceState(commandId);
-}
-
-void updateWateringState()
-{
-  if (!wateringActive)
-  {
-    return;
-  }
-
-  unsigned long now = millis();
-
-  if (now - wateringStartedAt < wateringDurationMs)
-  {
-    return;
-  }
-
-  Serial.println();
-  Serial.println("Watering duration completed.");
-  completeActiveWatering("duration completed");
-}
-
 void handleCommand(JsonObject command)
 {
   int commandId = command["id"] | 0;
@@ -822,13 +529,16 @@ void handleCommand(JsonObject command)
 
   if (type == "valve_on")
   {
-    handleValveOnCommand(commandId, command);
+    int durationSeconds = commandDurationSeconds(command);
+    Serial.print("Valve ON command duration_seconds: ");
+    Serial.println(durationSeconds);
+    startWateringCommand(commandId, durationSeconds);
     return;
   }
 
   if (type == "valve_off")
   {
-    handleValveOffCommand(commandId);
+    stopWateringCommand(commandId);
     return;
   }
 
@@ -889,9 +599,9 @@ void logWifiStatusIfNeeded(unsigned long now)
   Serial.print(" dBm Laravel=");
   Serial.print(isServerRecentlyReachable() ? "reachable" : "not-confirmed");
   Serial.print(" Valve=");
-  Serial.print(valveIsOn ? "on" : "off");
+  Serial.print(isValveOpen() ? "on" : "off");
   Serial.print(" Watering=");
-  Serial.println(wateringActive ? "active" : "idle");
+  Serial.println(isWateringActive() ? "active" : "idle");
 
   lastWifiStatusLogAt = now;
 }
