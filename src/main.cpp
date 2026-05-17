@@ -284,10 +284,16 @@ String buildSensorReadingPayload(const SensorReading &reading)
 {
   JsonDocument doc;
   doc["device_uuid"] = DEVICE_UUID;
+  doc["temperature"] = nullptr;
+  doc["humidity"] = nullptr;
 
   if (reading.hasSoilMoisture)
   {
     doc["soil_moisture"] = reading.soilMoisturePercent;
+  }
+  else
+  {
+    doc["soil_moisture"] = nullptr;
   }
 
   String payload;
@@ -297,12 +303,6 @@ String buildSensorReadingPayload(const SensorReading &reading)
 
 bool sendSensorReading(const SensorReading &reading)
 {
-  if (!reading.hasSoilMoisture)
-  {
-    Serial.println("Sensor reading upload skipped: soil sensor unavailable.");
-    return false;
-  }
-
   String response;
   int statusCode;
   String payload = buildSensorReadingPayload(reading);
@@ -310,7 +310,14 @@ bool sendSensorReading(const SensorReading &reading)
 
   if (ok)
   {
-    Serial.println("Sensor reading uploaded successfully.");
+    if (reading.hasSoilMoisture)
+    {
+      Serial.println("Sensor reading uploaded successfully.");
+    }
+    else
+    {
+      Serial.println("Sensor reading uploaded with null soil moisture.");
+    }
     return true;
   }
 
