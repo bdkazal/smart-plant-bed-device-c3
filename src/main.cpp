@@ -5,6 +5,7 @@
 
 #include "ApiClient.h"
 #include "DeviceSecrets.h"
+#include "DeviceStorage.h"
 #include "LocalAutomation.h"
 #include "ManualButton.h"
 #include "SensorReader.h"
@@ -12,7 +13,7 @@
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m9-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m10-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -481,6 +482,8 @@ bool fetchConfig()
     return false;
   }
 
+  saveCachedConfigJsonIfChanged(response);
+
   Serial.println("Config fetched successfully.");
   return true;
 }
@@ -626,8 +629,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 9.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 9.");
+  Serial.println("Unsupported command type for Milestone 10.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 10.");
 }
 
 bool pollCommands()
@@ -712,6 +715,7 @@ void setup()
   Serial.begin(115200);
   delay(1000);
 
+  beginDeviceStorage();
   beginValveOutput();
   beginStatusLed();
   beginManualButton();
