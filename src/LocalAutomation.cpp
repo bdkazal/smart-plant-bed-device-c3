@@ -101,7 +101,7 @@ void updateLocalAutomation(const SensorReading &reading)
   Serial.print("Duration seconds: ");
   Serial.println(configMaxWateringDurationSeconds);
 
-  startLocalWatering(configMaxWateringDurationSeconds);
+  startLocalAutoWatering(configMaxWateringDurationSeconds);
 
   lastLocalAutoWateringAt = millis();
 }
