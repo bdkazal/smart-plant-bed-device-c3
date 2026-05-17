@@ -6,11 +6,12 @@
 #include "ApiClient.h"
 #include "DeviceSecrets.h"
 #include "ManualButton.h"
+#include "SensorReader.h"
 #include "StatusLed.h"
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m6-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m7-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -22,6 +23,7 @@ const unsigned long WIFI_STATUS_LOG_INTERVAL_MS = 10000;
 const unsigned long HEARTBEAT_INTERVAL_MS = 15000;
 const unsigned long CONFIG_FETCH_INTERVAL_MS = 60000;
 const unsigned long COMMAND_POLL_INTERVAL_MS = 5000;
+const unsigned long READING_INTERVAL_MS = 30000;
 const unsigned long OFFLINE_HEARTBEAT_INTERVAL_MS = 30000;
 const unsigned long OFFLINE_COMMAND_POLL_INTERVAL_MS = 30000;
 const unsigned long OFFLINE_CONFIG_FETCH_INTERVAL_MS = 120000;
@@ -34,6 +36,7 @@ unsigned long lastWifiStatusLogAt = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastConfigFetchAt = 0;
 unsigned long lastCommandPollAt = 0;
+unsigned long lastReadingAt = 0;
 unsigned long lastServerSuccessAt = 0;
 
 ApiClient apiClient;
@@ -497,6 +500,13 @@ int getLocalManualDurationSeconds()
   return 30;
 }
 
+void handleSensorReadingCycle()
+{
+  readSensors();
+  updateManualButton();
+  updateWateringState();
+}
+
 void handleCommand(JsonObject command)
 {
   int commandId = command["id"] | 0;
@@ -540,8 +550,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 6.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 6.");
+  Serial.println("Unsupported command type for Milestone 7.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 7.");
 }
 
 bool pollCommands()
@@ -610,11 +620,13 @@ void runStartupApiTasks()
   fetchConfig();
   syncDeviceState(0);
   pollCommands();
+  handleSensorReadingCycle();
 
   unsigned long now = millis();
   lastHeartbeatAt = now;
   lastConfigFetchAt = now;
   lastCommandPollAt = now;
+  lastReadingAt = now;
 }
 
 void setup()
@@ -625,6 +637,7 @@ void setup()
   beginValveOutput();
   beginStatusLed();
   beginManualButton();
+  beginSensorReader();
   printBootInfo();
   apiClient.begin(API_BASE_URL, DEVICE_API_KEY);
 
@@ -633,6 +646,7 @@ void setup()
   unsigned long now = millis();
   lastWifiRetryAt = now;
   lastWifiStatusLogAt = now;
+  lastReadingAt = now;
 
   if (isWifiConnected())
   {
@@ -642,6 +656,8 @@ void setup()
   else
   {
     updateWifiStatusLedDisconnected();
+    handleSensorReadingCycle();
+    lastReadingAt = millis();
   }
 }
 
@@ -670,6 +686,13 @@ void loop()
       }
     }
 
+    now = millis();
+    if (now - lastReadingAt >= READING_INTERVAL_MS)
+    {
+      handleSensorReadingCycle();
+      lastReadingAt = millis();
+    }
+
     updateManualButton();
     delay(LOOP_IDLE_DELAY_MS);
     return;
@@ -691,6 +714,15 @@ void loop()
   {
     pollCommands();
     lastCommandPollAt = millis();
+    updateManualButton();
+  }
+
+  now = millis();
+
+  if (now - lastReadingAt >= READING_INTERVAL_MS)
+  {
+    handleSensorReadingCycle();
+    lastReadingAt = millis();
     updateManualButton();
   }
 
