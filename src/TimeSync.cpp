@@ -4,6 +4,8 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "RtcClock.h"
+
 static bool timeReady = false;
 static String activeTimezoneName = "Asia/Dhaka";
 static String timeSourceText = "NONE";
@@ -152,11 +154,6 @@ time_t utcTmToEpoch(const struct tm &utcInfo)
       utcInfo.tm_sec);
 }
 
-void saveSystemTimeToRtcStub()
-{
-  Serial.println("RTC update skipped: DS3231 module not enabled yet on C3.");
-}
-
 void setSystemTimeFromEpoch(time_t epoch, const String &sourceLabel, const String &originalTimestamp)
 {
   struct timeval tv;
@@ -179,7 +176,7 @@ void setSystemTimeFromEpoch(time_t epoch, const String &sourceLabel, const Strin
   Serial.println(originalTimestamp);
   printCurrentLocalTime("System");
 
-  saveSystemTimeToRtcStub();
+  saveSystemTimeToRtc();
 }
 
 void beginTimeSync()
@@ -187,11 +184,21 @@ void beginTimeSync()
   Serial.println();
   Serial.println("Time sync initialized.");
   applyTimezone(activeTimezoneName, 360);
+  beginRtcClock();
 
-  timeReady = false;
-  timeSourceText = "NONE";
-  Serial.println("Time source: none. Waiting for NTP or Laravel server time.");
-  Serial.println("DS3231 RTC support is planned for next milestone.");
+  if (loadSystemTimeFromRtc())
+  {
+    timeReady = true;
+    timeSourceText = "RTC";
+    Serial.println("Time source: RTC backup.");
+    printCurrentLocalTime("RTC restored");
+  }
+  else
+  {
+    timeReady = false;
+    timeSourceText = "NONE";
+    Serial.println("Time source: none. Waiting for NTP or Laravel server time.");
+  }
 }
 
 void syncTimeFromNtp(const String &timezoneName, int timezoneOffsetMinutes)
@@ -213,6 +220,15 @@ void syncTimeFromNtp(const String &timezoneName, int timezoneOffsetMinutes)
   if (!getLocalTime(&timeInfo, 10000))
   {
     Serial.println("Failed to get time from NTP. Will use Laravel server time if available.");
+
+    if (!timeReady && loadSystemTimeFromRtc())
+    {
+      timeReady = true;
+      timeSourceText = "RTC";
+      Serial.println("Time source: RTC backup after NTP failure.");
+      printCurrentLocalTime("RTC restored");
+    }
+
     return;
   }
 
@@ -223,7 +239,7 @@ void syncTimeFromNtp(const String &timezoneName, int timezoneOffsetMinutes)
   Serial.println(&timeInfo, "%Y-%m-%d %H:%M:%S");
   printCurrentLocalTime("System");
 
-  saveSystemTimeToRtcStub();
+  saveSystemTimeToRtc();
 }
 
 bool syncTimeFromLaravelUtcTimestamp(const String &timestamp)
