@@ -699,12 +699,6 @@ void handleValveOnCommand(int commandId, JsonObject command)
     return;
   }
 
-  if (!ackCommand(commandId, "acknowledged"))
-  {
-    Serial.println("Valve ON aborted: could not acknowledge command.");
-    return;
-  }
-
   activeCommandId = commandId;
   wateringStartedAt = millis();
   wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
@@ -712,6 +706,13 @@ void handleValveOnCommand(int commandId, JsonObject command)
 
   setValveOn("dashboard command");
   syncDeviceState(0);
+
+  bool acknowledged = ackCommand(commandId, "acknowledged");
+
+  if (!acknowledged)
+  {
+    Serial.println("Warning: failed to send acknowledged ack. Local watering still started.");
+  }
 
   Serial.print("Watering will auto-stop after seconds: ");
   Serial.println(durationSeconds);
@@ -743,12 +744,6 @@ void handleValveOffCommand(int commandId)
 {
   int interruptedCommandId = activeCommandId;
 
-  if (!ackCommand(commandId, "acknowledged"))
-  {
-    Serial.println("Valve OFF aborted: could not acknowledge command.");
-    return;
-  }
-
   setValveOff("dashboard stop command");
   clearWateringRuntime();
 
@@ -759,9 +754,20 @@ void handleValveOffCommand(int commandId)
     ackCommand(interruptedCommandId, "executed");
   }
 
+  bool acknowledged = ackCommand(commandId, "acknowledged");
+
+  if (!acknowledged)
+  {
+    Serial.println("Warning: failed to send acknowledged ack for valve_off.");
+  }
+
   if (ackCommand(commandId, "executed"))
   {
     Serial.println("Valve OFF command executed.");
+  }
+  else
+  {
+    Serial.println("Warning: failed to send executed ack for valve_off.");
   }
 
   syncDeviceState(commandId);
