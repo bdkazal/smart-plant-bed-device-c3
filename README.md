@@ -2,9 +2,9 @@
 
 Clean ESP32-C3-only firmware for the Smart Plant Bed device.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 now adds safe GPIO5 valve control, Plant Bed state sync, and C3 network responsiveness tuning.
+This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 added safe GPIO5 valve control, Plant Bed state sync, and C3 network responsiveness tuning. Milestone 5 adds the physical manual watering button.
 
-## Current scope: Milestone 4.5
+## Current scope: Milestone 5.1
 
 Included now:
 
@@ -39,6 +39,8 @@ Included now:
 - `valve_on` command support
 - `valve_off` command support
 - duration-based auto-stop for `valve_on`
+- GPIO3 manual watering button with 50 ms debounce
+- manual button toggles watering on/off
 - watering LED mirrors valve if physically connected to GPIO5 through resistor
 
 Not included yet:
@@ -48,12 +50,45 @@ Not included yet:
 - RTC
 - setup portal
 - AP+STA scanning
-- automatic local watering
+- automatic soil-based watering
 - schedule fallback execution
+
+## Manual watering button
+
+The manual watering button follows the old Plant Bed firmware behavior.
+
+Wiring:
+
+```text
+GPIO3 ---- button ---- GND
+```
+
+Firmware config:
+
+```text
+pinMode(GPIO3, INPUT_PULLUP)
+```
+
+Behavior:
+
+- button released = HIGH
+- button pressed = LOW
+- debounce = 50 ms
+
+Button press behavior:
+
+1. If the device is idle, the button starts local/manual watering.
+2. Local watering uses `local_manual_duration_seconds` from Laravel config.
+3. If config is missing or invalid, fallback duration is 30 seconds.
+4. Local watering has no Laravel command ID, so `activeCommandId = 0`.
+5. If Laravel is recently reachable, the device syncs state as watering/open.
+6. When duration completes, the valve turns off and state syncs as idle/closed.
+7. If the device is already watering, pressing the button stops watering immediately.
+8. If the button stops an active Laravel command, the firmware marks that Laravel command as `executed` and syncs final state.
 
 ## Network responsiveness
 
-Milestone 4.5 moves the C3 firmware closer to the original Plant Bed network behavior:
+Milestone 4.5 moved the C3 firmware closer to the original Plant Bed network behavior:
 
 ```text
 HTTP connect timeout  = 1000 ms
@@ -92,14 +127,14 @@ Payload shape:
 {
   "device_uuid": "...",
   "device_type": "plant_bed_controller",
-  "firmware_version": "smart-plant-bed-c3-m4-0.5",
+  "firmware_version": "smart-plant-bed-c3-m5-0.1",
   "operation_state": "idle",
   "valve_state": "closed",
   "watering_state": "idle"
 }
 ```
 
-When a command completes, the payload can include:
+When a Laravel command completes, the payload can include:
 
 ```json
 {
@@ -110,13 +145,14 @@ When a command completes, the payload can include:
 State sync happens:
 
 - after startup API tasks
-- after `valve_on` starts watering
-- after `valve_off` stops watering
+- after dashboard `valve_on` starts watering
+- after dashboard `valve_off` stops watering
 - after duration auto-stop completes
+- after manual button starts/stops local watering when Laravel is recently reachable
 
-## Milestone 4 valve behavior
+## Valve behavior
 
-`valve_on` behavior:
+Dashboard `valve_on` behavior:
 
 1. Firmware receives command.
 2. Firmware validates duration.
@@ -128,7 +164,7 @@ State sync happens:
 8. Firmware marks the original `valve_on` command as `executed`.
 9. Device syncs final state as idle/closed.
 
-`valve_off` behavior:
+Dashboard `valve_off` behavior:
 
 1. Firmware receives stop command.
 2. Firmware ACKs stop command as `acknowledged`.
@@ -138,17 +174,6 @@ State sync happens:
 6. Device syncs final state as idle/closed.
 
 This matches the original Plant Bed runtime idea: a watering command is not marked executed until watering actually ends.
-
-## Milestone 4 safety rule
-
-First Milestone 4 upload/test should be done with the MOSFET/valve disconnected. Confirm serial logs and command ACK/state flow first. After that passes, connect GPIO5 to the LR7843 input and test with the valve power side safely wired.
-
-GPIO5 behavior:
-
-| State | GPIO5 |
-| --- | --- |
-| Valve OFF | LOW |
-| Valve ON | HIGH |
 
 ## Hardware target
 
@@ -163,7 +188,7 @@ Planned pin map:
 | Wi-Fi status LED | GPIO6 | Future milestone |
 | Soil moisture ADC | GPIO1 | Future milestone, with 100k pulldown to GND |
 | DHT11 data | GPIO2 | Future milestone |
-| Manual watering button | GPIO3 | Future milestone, to GND, `INPUT_PULLUP` |
+| Manual watering button | GPIO3 | To GND, `INPUT_PULLUP` |
 | OLED wake/status button | GPIO4 | Future milestone, to GND, `INPUT_PULLUP` |
 | Wi-Fi reset button | GPIO7 | Future milestone, to GND, `INPUT_PULLUP` |
 | I2C SDA | GPIO8 | OLED + RTC later |
@@ -177,7 +202,7 @@ Planned pin map:
 - Do not power the valve from the ESP32-C3 3.3V pin.
 - Do not connect DS1307 I2C pullups to 5V.
 - DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, state sync, and valve control are stable.
+- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, state sync, valve control, and manual button are stable.
 
 ## Local secrets setup
 
@@ -217,8 +242,11 @@ Expected boot output should include:
 
 ```text
 Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m4-0.5
+Firmware version: smart-plant-bed-c3-m5-0.1
 Valve OFF - safe boot default
+Manual watering button initialized.
+Manual button GPIO: 3
+Button mode: INPUT_PULLUP, press connects GPIO to GND
 Valve GPIO: 5
 Wi-Fi connected.
 Config fetched successfully.
@@ -227,44 +255,50 @@ Device state synced successfully.
 No pending command.
 ```
 
-When you send a dashboard watering command, expected output should include:
+Manual button start test:
 
 ```text
-Command found: #... type=valve_on
-Valve ON command duration_seconds: ...
-Command #... marked as acknowledged
-Valve ON - dashboard command
+Manual watering button pressed.
+Starting local watering.
+Valve ON - manual button
 POST http://.../api/device/state
 Device state synced successfully.
-Watering will auto-stop after seconds: ...
+Local watering duration seconds: 30
 ```
 
-After the duration completes, expected output should include:
+Manual button auto-stop test:
 
 ```text
 Watering duration completed.
 Valve OFF - duration completed
-Command #... marked as executed
-Valve ON command completed and executed: #...
 POST http://.../api/device/state
 Device state synced successfully.
 ```
 
-When you send a stop command during active watering, expected output should include:
+Manual button stop test while watering:
 
 ```text
-Command found: #... type=valve_off
-Command #... marked as acknowledged
-Valve OFF - dashboard stop command
-Closing interrupted valve_on command: #...
+Manual watering button pressed.
+Stopping watering from physical button.
+Valve OFF - manual button stop
+POST http://.../api/device/state
+Device state synced successfully.
+```
+
+Manual button stopping dashboard command:
+
+```text
+Manual watering button pressed.
+Stopping watering from physical button.
+Valve OFF - manual button stop
+Physical button stopped Laravel command: #...
 Command #... marked as executed
-Valve OFF command executed.
 POST http://.../api/device/state
 Device state synced successfully.
 ```
 
 ## Next milestone
 
-After Milestone 4.5 passes, add the manual watering button on GPIO3.
+After Milestone 5.1 passes, add the Wi-Fi/status LED on GPIO6.
 
 Do not add sensors/OLED/RTC before manual valve control is stable.
