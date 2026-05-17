@@ -10,10 +10,11 @@
 #include "ManualButton.h"
 #include "SensorReader.h"
 #include "StatusLed.h"
+#include "TimeSync.h"
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m10-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m11-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -419,6 +420,13 @@ void printConfigSummary()
   Serial.println(serverTimeUtc.length() ? serverTimeUtc : "missing");
   Serial.print("  server_time_local: ");
   Serial.println(serverTimeLocal.length() ? serverTimeLocal : "missing");
+  Serial.print("  time_ready: ");
+  Serial.println(isTimeReady() ? "yes" : "no");
+  Serial.print("  time_source: ");
+  Serial.println(getTimeSourceText());
+  Serial.print("  local_time: ");
+  String localTime = getCurrentTimeString();
+  Serial.println(localTime.length() ? localTime : "missing");
   Serial.print("  valve_state: ");
   Serial.println(isValveOpen() ? "on" : "off");
   Serial.print("  watering_active: ");
@@ -472,6 +480,9 @@ bool parseConfigResponse(const String &response)
     return false;
   }
 
+  syncTimeFromLaravelUtcTimestamp(serverTimeUtc);
+  syncTimeFromLaravelTimestamp(serverTimeLocal);
+
   printConfigSummary();
   return true;
 }
@@ -498,6 +509,8 @@ bool parseCachedConfigObjectJson(const String &configJson)
   {
     return false;
   }
+
+  syncTimeFromNtp(configTimezone, configTimezoneOffsetMinutes);
 
   serverTimeUtc = "";
   serverTimeLocal = "";
@@ -711,8 +724,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 10.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 10.");
+  Serial.println("Unsupported command type for Milestone 11.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 11.");
 }
 
 bool pollCommands()
@@ -767,6 +780,11 @@ void logWifiStatusIfNeeded(unsigned long now)
   Serial.print(WiFi.RSSI());
   Serial.print(" dBm Laravel=");
   Serial.print(isServerRecentlyReachable() ? "reachable" : "not-confirmed");
+  Serial.print(" Time=");
+  Serial.print(getTimeSourceText());
+  Serial.print(" ");
+  String localTime = getCurrentTimeString();
+  Serial.print(localTime.length() ? localTime : "--:--:--");
   Serial.print(" Valve=");
   Serial.print(isValveOpen() ? "on" : "off");
   Serial.print(" Watering=");
@@ -797,6 +815,7 @@ void setup()
   Serial.begin(115200);
   delay(1000);
 
+  beginTimeSync();
   beginDeviceStorage();
   loadCachedConfigOnBoot();
   beginValveOutput();
