@@ -8,6 +8,7 @@
 
 static const int RTC_I2C_SDA_PIN = 8;
 static const int RTC_I2C_SCL_PIN = 9;
+static const long RTC_UPDATE_DRIFT_THRESHOLD_SECONDS = 5;
 
 RTC_DS3231 rtc;
 
@@ -166,6 +167,24 @@ bool saveSystemTimeToRtc()
   {
     Serial.println("RTC update skipped: UTC system time is not reasonable.");
     return false;
+  }
+
+  DateTime rtcNow = rtc.now();
+
+  if (isReasonableRtcTime(rtcNow))
+  {
+    long driftSeconds = labs((long)systemUtcNow.unixtime() - (long)rtcNow.unixtime());
+
+    Serial.print("DS3231 UTC drift seconds: ");
+    Serial.println(driftSeconds);
+
+    if (driftSeconds <= RTC_UPDATE_DRIFT_THRESHOLD_SECONDS)
+    {
+      rtcTimeValid = true;
+      rtcStatusText = "RTC already in sync";
+      Serial.println("RTC update skipped: DS3231 already within 5 seconds of system UTC.");
+      return false;
+    }
   }
 
   rtc.adjust(systemUtcNow);
