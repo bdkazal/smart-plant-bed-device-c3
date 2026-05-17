@@ -1,208 +1,119 @@
 # Smart Plant Bed Device C3
 
-Clean ESP32-C3-only firmware for the Smart Plant Bed device.
+ESP32-C3 Super Mini firmware for the **Biztola Smart Plant Bed** controller.
 
-This repository intentionally starts small. Milestone 1 proved stable ESP32-C3 Wi-Fi station mode. Milestone 2 proved Laravel heartbeat. Milestone 3 proved config fetch and command polling. Milestone 4 added safe GPIO5 valve control, Plant Bed state sync, and C3 network responsiveness tuning. Milestone 5 adds the physical manual watering button.
+This repo is the C3 replacement/port of the original ESP32 DevKit Plant Bed firmware. The product logic stays the same, but the implementation is adapted for the ESP32-C3 Super Mini: single-core CPU, lower power/heat target, fewer usable GPIO pins, native USB serial, and careful cooperative loop timing.
 
-## Current scope: Milestone 5.1
-
-Included now:
-
-- ESP32-C3 Super Mini / `esp32-c3-devkitm-1` PlatformIO environment
-- Arduino framework
-- Native USB serial flags for ESP32-C3
-- Fixed local Wi-Fi credentials through `include/DeviceSecrets.h`
-- Smart Plant Bed / Smart Fountain C3-style Wi-Fi:
-  - `WiFi.mode(WIFI_STA)`
-  - `WiFi.setTxPower(WIFI_POWER_8_5dBm)`
-  - no forced `WiFi.setSleep(false)`
-- 15 second Wi-Fi connection timeout
-- 10 second Wi-Fi retry interval
-- 20 ms cooperative loop delay
-- HTTP connect timeout: 1000 ms
-- HTTP response timeout: 1500 ms
-- server reachable window: 15000 ms
-- online heartbeat interval: 15 seconds
-- online command poll interval: 5 seconds
-- online config fetch interval: 60 seconds
-- offline heartbeat retry interval: 30 seconds
-- offline command poll retry interval: 30 seconds
-- offline config fetch retry interval: 120 seconds
-- Minimal `ApiClient`
-- `POST /api/device/heartbeat`
-- `GET /api/device/config?device_uuid=...`
-- `GET /api/device/commands?device_uuid=...`
-- `POST /api/device/commands/{id}/ack` helper
-- `POST /api/device/state` Plant Bed state sync
-- GPIO5 valve output, active HIGH
-- safe valve OFF on boot
-- `valve_on` command support
-- `valve_off` command support
-- duration-based auto-stop for `valve_on`
-- GPIO3 manual watering button with 50 ms debounce
-- manual button toggles watering on/off
-- watering LED mirrors valve if physically connected to GPIO5 through resistor
-
-Not included yet:
-
-- sensors
-- OLED
-- RTC
-- setup portal
-- AP+STA scanning
-- automatic soil-based watering
-- schedule fallback execution
-
-## Manual watering button
-
-The manual watering button follows the old Plant Bed firmware behavior.
-
-Wiring:
+Current stable firmware:
 
 ```text
-GPIO3 ---- button ---- GND
+smart-plant-bed-c3-m11-0.4
 ```
 
-Firmware config:
+## Current status
+
+Working now:
+
+- ESP32-C3 Super Mini PlatformIO firmware
+- Native USB serial monitor support
+- Wi-Fi station mode with reduced TX power
+- Laravel API authentication with `X-DEVICE-KEY`
+- Heartbeat
+- Config fetch
+- Command polling
+- Device state sync
+- Dashboard `valve_on` / `valve_off`
+- Duration-based auto-stop
+- Physical manual watering button
+- Wi-Fi status LED
+- Valve/watering output on GPIO5
+- Soil moisture sensor on GPIO1
+- Soil sensor disconnected/N/A detection
+- DHT11 temperature/humidity on GPIO2
+- Sensor readings upload to Laravel
+- Cached Laravel config in ESP32 NVS/Preferences
+- Offline auto-watering fallback using cached config
+- Time sync from NTP and Laravel UTC
+- DS3231 RTC UTC backup
+- RTC update skipped when drift is within 5 seconds
+
+Not enabled yet:
+
+- Local schedule fallback execution
+- OLED display
+- OLED/display button
+- Wi-Fi setup portal
+- Wi-Fi reset provisioning flow
+- Production enclosure/power finalization
+
+## Important design rule
+
+Laravel is the primary controller when reachable.
+
+Local firmware automation is **fallback-only**:
 
 ```text
-pinMode(GPIO3, INPUT_PULLUP)
+Laravel reachable:
+  Laravel controls commands, config, state, and automation.
+
+Laravel not reachable:
+  firmware may use cached config + local sensors + RTC time for safe fallback behavior.
 ```
 
-Behavior:
-
-- button released = HIGH
-- button pressed = LOW
-- debounce = 50 ms
-
-Button press behavior:
-
-1. If the device is idle, the button starts local/manual watering.
-2. Local watering uses `local_manual_duration_seconds` from Laravel config.
-3. If config is missing or invalid, fallback duration is 30 seconds.
-4. Local watering has no Laravel command ID, so `activeCommandId = 0`.
-5. If Laravel is recently reachable, the device syncs state as watering/open.
-6. When duration completes, the valve turns off and state syncs as idle/closed.
-7. If the device is already watering, pressing the button stops watering immediately.
-8. If the button stops an active Laravel command, the firmware marks that Laravel command as `executed` and syncs final state.
-
-## Network responsiveness
-
-Milestone 4.5 moved the C3 firmware closer to the original Plant Bed network behavior:
-
-```text
-HTTP connect timeout  = 1000 ms
-HTTP response timeout = 1500 ms
-```
-
-When Laravel is recently reachable, API work stays responsive:
-
-```text
-heartbeat     every 15 seconds
-command poll  every 5 seconds
-config fetch   every 60 seconds
-```
-
-When Laravel is not recently reachable, retries slow down:
-
-```text
-heartbeat retry     every 30 seconds
-command poll retry  every 30 seconds
-config fetch retry  every 120 seconds
-```
-
-This protects the single-core ESP32-C3 from spending too much time blocked on failed network calls once local controls are added.
-
-## Plant Bed state sync
-
-The firmware syncs actual device state to Laravel using:
-
-```http
-POST /api/device/state
-```
-
-Payload shape:
-
-```json
-{
-  "device_uuid": "...",
-  "device_type": "plant_bed_controller",
-  "firmware_version": "smart-plant-bed-c3-m5-0.1",
-  "operation_state": "idle",
-  "valve_state": "closed",
-  "watering_state": "idle"
-}
-```
-
-When a Laravel command completes, the payload can include:
-
-```json
-{
-  "last_completed_command_id": 123
-}
-```
-
-State sync happens:
-
-- after startup API tasks
-- after dashboard `valve_on` starts watering
-- after dashboard `valve_off` stops watering
-- after duration auto-stop completes
-- after manual button starts/stops local watering when Laravel is recently reachable
-
-## Valve behavior
-
-Dashboard `valve_on` behavior:
-
-1. Firmware receives command.
-2. Firmware validates duration.
-3. Firmware ACKs command as `acknowledged`.
-4. GPIO5 goes HIGH.
-5. Device syncs state as watering/open.
-6. Device keeps watering active until duration completes.
-7. GPIO5 goes LOW automatically.
-8. Firmware marks the original `valve_on` command as `executed`.
-9. Device syncs final state as idle/closed.
-
-Dashboard `valve_off` behavior:
-
-1. Firmware receives stop command.
-2. Firmware ACKs stop command as `acknowledged`.
-3. GPIO5 goes LOW immediately.
-4. Any active `valve_on` command is closed as `executed`.
-5. Stop command is marked as `executed`.
-6. Device syncs final state as idle/closed.
-
-This matches the original Plant Bed runtime idea: a watering command is not marked executed until watering actually ends.
+Local auto-watering is already active as fallback. Local schedule fallback is still disabled until read-only testing passes.
 
 ## Hardware target
 
-ESP32-C3 Super Mini only.
+```text
+Board: ESP32-C3 Super Mini
+PlatformIO board: esp32-c3-devkitm-1
+Framework: Arduino
+```
 
-Planned pin map:
+## Pin map
 
 | Function | GPIO | Notes |
 | --- | ---: | --- |
-| Valve / LR7843 MOSFET input | GPIO5 | Active HIGH |
-| Watering LED | GPIO5 | Same valve signal through 330 ohm resistor |
-| Wi-Fi status LED | GPIO6 | Future milestone |
-| Soil moisture ADC | GPIO1 | Future milestone, with 100k pulldown to GND |
-| DHT11 data | GPIO2 | Future milestone |
-| Manual watering button | GPIO3 | To GND, `INPUT_PULLUP` |
-| OLED wake/status button | GPIO4 | Future milestone, to GND, `INPUT_PULLUP` |
-| Wi-Fi reset button | GPIO7 | Future milestone, to GND, `INPUT_PULLUP` |
-| I2C SDA | GPIO8 | OLED + RTC later |
-| I2C SCL | GPIO9 | OLED + RTC later; test boot carefully |
+| Valve / MOSFET input | GPIO5 | Active HIGH |
+| Watering indicator LED | GPIO5 | Mirrors valve signal through resistor |
+| Wi-Fi status LED | GPIO6 | Active HIGH |
+| Manual watering button | GPIO3 | `INPUT_PULLUP`, press connects to GND |
+| Soil moisture ADC | GPIO1 | Capacitive sensor v1.2, 100k pulldown recommended |
+| DHT11 data | GPIO2 | Temperature/humidity reporting only |
+| DS3231 SDA | GPIO8 | I2C |
+| DS3231 SCL | GPIO9 | I2C |
 
-## Safety notes
+See [`Docs/HARDWARE_PIN_MAP.md`](Docs/HARDWARE_PIN_MAP.md) for wiring details.
 
-- ESP32-C3 GPIO pins are not 5V tolerant.
-- LR7843 input must be driven from ESP32-C3 GPIO logic only, not from 5V.
-- Use common GND between ESP32-C3 and valve power/MOSFET side.
-- Do not power the valve from the ESP32-C3 3.3V pin.
-- Do not connect DS1307 I2C pullups to 5V.
-- DS1307 module VCC may be 5V, but SDA/SCL pullups must be to 3.3V only.
-- Do not enable setup portal/AP+STA until normal station Wi-Fi, heartbeat, config fetch, command polling, state sync, valve control, and manual button are stable.
+## Laravel API endpoints used
+
+```http
+POST /api/device/heartbeat
+GET  /api/device/config?device_uuid=...
+POST /api/device/readings
+GET  /api/device/commands?device_uuid=...
+POST /api/device/commands/{id}/ack
+POST /api/device/state
+```
+
+See [`Docs/API_AND_RUNTIME.md`](Docs/API_AND_RUNTIME.md) for request behavior and intervals.
+
+## Time and RTC model
+
+The firmware keeps system time as UTC epoch internally and uses Laravel timezone config for local time display/schedule comparison.
+
+Priority:
+
+```text
+1. NTP
+2. Laravel server_time_utc
+3. DS3231 RTC UTC backup
+4. no valid time
+```
+
+DS3231 stores **UTC**, not Bangladesh local time.
+
+See [`Docs/OFFLINE_TIME_AND_RTC.md`](Docs/OFFLINE_TIME_AND_RTC.md).
 
 ## Local secrets setup
 
@@ -223,13 +134,9 @@ Edit `include/DeviceSecrets.h`:
 #define DEVICE_API_KEY "Your Laravel device API key"
 ```
 
-`include/DeviceSecrets.h` is ignored by Git.
+Use your Mac LAN IP for `API_BASE_URL`, not `localhost`.
 
-Use your Mac LAN IP for `API_BASE_URL`, not `localhost`, because the ESP32-C3 is a separate device on the network.
-
-## Build, upload, and test
-
-From the repo root:
+## Build, upload, monitor
 
 ```bash
 git pull
@@ -238,67 +145,40 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-Expected boot output should include:
+Expected boot highlights:
 
 ```text
-Biztola Smart Plant Bed ESP32-C3 starting...
-Firmware version: smart-plant-bed-c3-m5-0.1
+Firmware version: smart-plant-bed-c3-m11-0.4
+Time sync initialized.
+Initializing DS3231 RTC...
+Device storage initialized.
+Cached config loaded from flash.
 Valve OFF - safe boot default
-Manual watering button initialized.
-Manual button GPIO: 3
-Button mode: INPUT_PULLUP, press connects GPIO to GND
-Valve GPIO: 5
 Wi-Fi connected.
+Heartbeat sent successfully.
 Config fetched successfully.
-POST http://.../api/device/state
 Device state synced successfully.
-No pending command.
+Sensor reading uploaded successfully.
 ```
 
-Manual button start test:
+## Current test checklist
 
-```text
-Manual watering button pressed.
-Starting local watering.
-Valve ON - manual button
-POST http://.../api/device/state
-Device state synced successfully.
-Local watering duration seconds: 30
-```
+See [`Docs/TESTING_CHECKLIST.md`](Docs/TESTING_CHECKLIST.md).
 
-Manual button auto-stop test:
+Minimum checks before continuing:
 
-```text
-Watering duration completed.
-Valve OFF - duration completed
-POST http://.../api/device/state
-Device state synced successfully.
-```
-
-Manual button stop test while watering:
-
-```text
-Manual watering button pressed.
-Stopping watering from physical button.
-Valve OFF - manual button stop
-POST http://.../api/device/state
-Device state synced successfully.
-```
-
-Manual button stopping dashboard command:
-
-```text
-Manual watering button pressed.
-Stopping watering from physical button.
-Valve OFF - manual button stop
-Physical button stopped Laravel command: #...
-Command #... marked as executed
-POST http://.../api/device/state
-Device state synced successfully.
-```
+- RTC restores time on reboot
+- RTC write is skipped when drift is within 5 seconds
+- Laravel config cache is not rewritten when unchanged
+- Sensor disconnected shows N/A/null, not false 0
+- Offline auto fallback works only when Laravel is not reachable
+- Manual button can start and stop local watering
+- Dashboard commands still work after all local modules are enabled
 
 ## Next milestone
 
-After Milestone 5.1 passes, add the Wi-Fi/status LED on GPIO6.
+```text
+M12.1 — Local schedule fallback read-only test
+```
 
-Do not add sensors/OLED/RTC before manual valve control is stable.
+This next step should only detect and print schedule matches. It must **not** turn the valve on until read-only schedule matching is verified.
