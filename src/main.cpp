@@ -58,6 +58,7 @@ int configLocalManualDurationSeconds = 30;
 int configScheduleCount = 0;
 bool hasSoilMoistureThreshold = false;
 int configSoilMoistureThreshold = 0;
+bool hasLoadedCachedConfig = false;
 
 bool isWifiConnected()
 {
@@ -424,28 +425,13 @@ void printConfigSummary()
   Serial.println(isWateringActive() ? "yes" : "no");
 }
 
-bool parseConfigResponse(const String &response)
+bool applyConfigObject(JsonObject config)
 {
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, response);
-
-  if (error)
-  {
-    Serial.print("Config JSON parse failed: ");
-    Serial.println(error.c_str());
-    return false;
-  }
-
-  JsonObject config = doc["config"].as<JsonObject>();
-
   if (config.isNull())
   {
     Serial.println("Config JSON missing config object.");
     return false;
   }
-
-  serverTimeUtc = doc["server_time_utc"] | "";
-  serverTimeLocal = doc["server_time_local"] | "";
 
   configDeviceName = config["device_name"] | "";
   configTimezone = config["timezone"] | "Asia/Dhaka";
@@ -461,8 +447,78 @@ bool parseConfigResponse(const String &response)
   JsonArray schedules = config["schedules"].as<JsonArray>();
   configScheduleCount = schedules.isNull() ? 0 : schedules.size();
 
+  return true;
+}
+
+bool parseConfigResponse(const String &response)
+{
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error)
+  {
+    Serial.print("Config JSON parse failed: ");
+    Serial.println(error.c_str());
+    return false;
+  }
+
+  JsonObject config = doc["config"].as<JsonObject>();
+
+  serverTimeUtc = doc["server_time_utc"] | "";
+  serverTimeLocal = doc["server_time_local"] | "";
+
+  if (!applyConfigObject(config))
+  {
+    return false;
+  }
+
   printConfigSummary();
   return true;
+}
+
+bool parseCachedConfigObjectJson(const String &configJson)
+{
+  if (configJson.length() == 0)
+  {
+    Serial.println("No cached config JSON to parse.");
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, configJson);
+
+  if (error)
+  {
+    Serial.print("Failed to parse cached config JSON: ");
+    Serial.println(error.c_str());
+    return false;
+  }
+
+  if (!applyConfigObject(doc.as<JsonObject>()))
+  {
+    return false;
+  }
+
+  serverTimeUtc = "";
+  serverTimeLocal = "";
+
+  Serial.println("Cached config loaded from flash.");
+  printConfigSummary();
+  return true;
+}
+
+void loadCachedConfigOnBoot()
+{
+  String cachedConfigJson = loadCachedConfigJson();
+
+  if (cachedConfigJson.length() == 0)
+  {
+    Serial.println("No cached Laravel config found in flash.");
+    hasLoadedCachedConfig = false;
+    return;
+  }
+
+  hasLoadedCachedConfig = parseCachedConfigObjectJson(cachedConfigJson);
 }
 
 String extractConfigJsonForCache(const String &response)
@@ -742,6 +798,7 @@ void setup()
   delay(1000);
 
   beginDeviceStorage();
+  loadCachedConfigOnBoot();
   beginValveOutput();
   beginStatusLed();
   beginManualButton();
