@@ -280,6 +280,44 @@ bool sendHeartbeat()
   return false;
 }
 
+String buildSensorReadingPayload(const SensorReading &reading)
+{
+  JsonDocument doc;
+  doc["device_uuid"] = DEVICE_UUID;
+
+  if (reading.hasSoilMoisture)
+  {
+    doc["soil_moisture"] = reading.soilMoisturePercent;
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+  return payload;
+}
+
+bool sendSensorReading(const SensorReading &reading)
+{
+  if (!reading.hasSoilMoisture)
+  {
+    Serial.println("Sensor reading upload skipped: soil sensor unavailable.");
+    return false;
+  }
+
+  String response;
+  int statusCode;
+  String payload = buildSensorReadingPayload(reading);
+  bool ok = httpPostJson(apiClient.url("/api/device/readings"), payload, response, statusCode);
+
+  if (ok)
+  {
+    Serial.println("Sensor reading uploaded successfully.");
+    return true;
+  }
+
+  Serial.println("Sensor reading upload failed.");
+  return false;
+}
+
 String buildDeviceStatePayload(int lastCompletedCommandId)
 {
   JsonDocument doc;
@@ -502,7 +540,17 @@ int getLocalManualDurationSeconds()
 
 void handleSensorReadingCycle()
 {
-  readSensors();
+  SensorReading reading = readSensors();
+
+  if (isServerRecentlyReachable())
+  {
+    sendSensorReading(reading);
+  }
+  else
+  {
+    Serial.println("Sensor reading upload skipped: Laravel is not recently reachable.");
+  }
+
   updateManualButton();
   updateWateringState();
 }
