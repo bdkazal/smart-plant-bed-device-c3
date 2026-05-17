@@ -8,6 +8,7 @@ void startWateringCommand(int commandId, int durationSeconds);
 void stopWateringCommand(int commandId);
 
 void startLocalWatering(int durationSeconds);
+void startLocalAutoWatering(int durationSeconds);
 void stopLocalWatering();
 
 void updateWateringState();
