@@ -6,10 +6,11 @@
 #include "ApiClient.h"
 #include "DeviceSecrets.h"
 #include "ManualButton.h"
+#include "StatusLed.h"
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m5-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m6-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -79,9 +80,6 @@ void markServerResult(int statusCode)
   {
     serverReachable = false;
   }
-
-  // A non-2xx HTTP response still means Laravel answered.
-  // Only connection/timeout errors use negative status codes and mark server unavailable.
 }
 
 void markServerUnavailable()
@@ -136,8 +134,6 @@ void connectWifi()
   Serial.print("Connecting Wi-Fi: ");
   Serial.println(WIFI_SSID);
 
-  // Match the stable Plant Bed / Smart Fountain C3 Wi-Fi pattern:
-  // station mode, reduced TX power, then begin. Do not force Wi-Fi sleep off.
   WiFi.mode(WIFI_STA);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -154,6 +150,7 @@ void connectWifi()
 
   if (isWifiConnected())
   {
+    setWifiStatusLedConnected();
     Serial.println("Wi-Fi connected.");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
@@ -162,6 +159,7 @@ void connectWifi()
   }
   else
   {
+    updateWifiStatusLedDisconnected();
     Serial.println("Wi-Fi connection failed. Device will retry later.");
     WiFi.disconnect(false);
     markServerUnavailable();
@@ -542,8 +540,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 5.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 5.");
+  Serial.println("Unsupported command type for Milestone 6.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 6.");
 }
 
 bool pollCommands()
@@ -625,6 +623,7 @@ void setup()
   delay(1000);
 
   beginValveOutput();
+  beginStatusLed();
   beginManualButton();
   printBootInfo();
   apiClient.begin(API_BASE_URL, DEVICE_API_KEY);
@@ -637,7 +636,12 @@ void setup()
 
   if (isWifiConnected())
   {
+    setWifiStatusLedConnected();
     runStartupApiTasks();
+  }
+  else
+  {
+    updateWifiStatusLedDisconnected();
   }
 }
 
@@ -651,6 +655,7 @@ void loop()
   if (!isWifiConnected())
   {
     markServerUnavailable();
+    updateWifiStatusLedDisconnected();
 
     if (now - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS)
     {
@@ -660,6 +665,7 @@ void loop()
 
       if (isWifiConnected())
       {
+        setWifiStatusLedConnected();
         runStartupApiTasks();
       }
     }
@@ -669,6 +675,7 @@ void loop()
     return;
   }
 
+  setWifiStatusLedConnected();
   logWifiStatusIfNeeded(now);
 
   if (now - lastHeartbeatAt >= heartbeatIntervalForCurrentReachability())
