@@ -11,7 +11,7 @@
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m7-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m8-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -284,8 +284,24 @@ String buildSensorReadingPayload(const SensorReading &reading)
 {
   JsonDocument doc;
   doc["device_uuid"] = DEVICE_UUID;
-  doc["temperature"] = nullptr;
-  doc["humidity"] = nullptr;
+
+  if (reading.hasTemperature)
+  {
+    doc["temperature"] = reading.temperatureC;
+  }
+  else
+  {
+    doc["temperature"] = nullptr;
+  }
+
+  if (reading.hasHumidity)
+  {
+    doc["humidity"] = (int)reading.humidityPercent;
+  }
+  else
+  {
+    doc["humidity"] = nullptr;
+  }
 
   if (reading.hasSoilMoisture)
   {
@@ -310,14 +326,7 @@ bool sendSensorReading(const SensorReading &reading)
 
   if (ok)
   {
-    if (reading.hasSoilMoisture)
-    {
-      Serial.println("Sensor reading uploaded successfully.");
-    }
-    else
-    {
-      Serial.println("Sensor reading uploaded with null soil moisture.");
-    }
+    Serial.println("Sensor reading uploaded successfully.");
     return true;
   }
 
@@ -605,8 +614,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 7.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 7.");
+  Serial.println("Unsupported command type for Milestone 8.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 8.");
 }
 
 bool pollCommands()
