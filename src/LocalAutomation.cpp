@@ -50,7 +50,7 @@ void beginLocalAutomation()
   Serial.println();
   Serial.println("Local automation initialized.");
   Serial.println("Local auto watering is fallback-only when Laravel is not reachable.");
-  Serial.println("Local schedule watering is not enabled yet on C3 because TimeSync/cache is not ported.");
+  Serial.println("Local schedule watering is disabled until schedule fallback read-only testing passes.");
 }
 
 void updateLocalAutomation(const SensorReading &reading)
@@ -124,5 +124,5 @@ void updateLocalScheduleFallback()
     return;
   }
 
-  Serial.println("Local schedule skipped: TimeSync/cache module is not ported yet on C3.");
+  Serial.println("Local schedule skipped: read-only schedule fallback test is not implemented yet.");
 }
