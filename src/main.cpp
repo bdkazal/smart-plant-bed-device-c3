@@ -5,13 +5,14 @@
 
 #include "ApiClient.h"
 #include "DeviceSecrets.h"
+#include "LocalAutomation.h"
 #include "ManualButton.h"
 #include "SensorReader.h"
 #include "StatusLed.h"
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m8-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m9-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -24,6 +25,7 @@ const unsigned long HEARTBEAT_INTERVAL_MS = 15000;
 const unsigned long CONFIG_FETCH_INTERVAL_MS = 60000;
 const unsigned long COMMAND_POLL_INTERVAL_MS = 5000;
 const unsigned long READING_INTERVAL_MS = 30000;
+const unsigned long SCHEDULE_CHECK_INTERVAL_MS = 5000;
 const unsigned long OFFLINE_HEARTBEAT_INTERVAL_MS = 30000;
 const unsigned long OFFLINE_COMMAND_POLL_INTERVAL_MS = 30000;
 const unsigned long OFFLINE_CONFIG_FETCH_INTERVAL_MS = 120000;
@@ -37,6 +39,7 @@ unsigned long lastHeartbeatAt = 0;
 unsigned long lastConfigFetchAt = 0;
 unsigned long lastCommandPollAt = 0;
 unsigned long lastReadingAt = 0;
+unsigned long lastScheduleCheckAt = 0;
 unsigned long lastServerSuccessAt = 0;
 
 ApiClient apiClient;
@@ -554,9 +557,17 @@ int getLocalManualDurationSeconds()
   return 30;
 }
 
+void updateLocalControls()
+{
+  updateManualButton();
+  updateWateringState();
+}
+
 void handleSensorReadingCycle()
 {
   SensorReading reading = readSensors();
+
+  updateLocalControls();
 
   if (isServerRecentlyReachable())
   {
@@ -564,11 +575,12 @@ void handleSensorReadingCycle()
   }
   else
   {
-    Serial.println("Sensor reading upload skipped: Laravel is not recently reachable.");
+    Serial.println("Laravel not reachable. Sensor reading kept local for fallback automation.");
   }
 
-  updateManualButton();
-  updateWateringState();
+  updateLocalControls();
+
+  updateLocalAutomation(reading);
 }
 
 void handleCommand(JsonObject command)
@@ -614,8 +626,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 8.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 8.");
+  Serial.println("Unsupported command type for Milestone 9.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 9.");
 }
 
 bool pollCommands()
@@ -685,12 +697,14 @@ void runStartupApiTasks()
   syncDeviceState(0);
   pollCommands();
   handleSensorReadingCycle();
+  updateLocalScheduleFallback();
 
   unsigned long now = millis();
   lastHeartbeatAt = now;
   lastConfigFetchAt = now;
   lastCommandPollAt = now;
   lastReadingAt = now;
+  lastScheduleCheckAt = now;
 }
 
 void setup()
@@ -702,6 +716,7 @@ void setup()
   beginStatusLed();
   beginManualButton();
   beginSensorReader();
+  beginLocalAutomation();
   printBootInfo();
   apiClient.begin(API_BASE_URL, DEVICE_API_KEY);
 
@@ -711,6 +726,7 @@ void setup()
   lastWifiRetryAt = now;
   lastWifiStatusLogAt = now;
   lastReadingAt = now;
+  lastScheduleCheckAt = now;
 
   if (isWifiConnected())
   {
@@ -721,7 +737,9 @@ void setup()
   {
     updateWifiStatusLedDisconnected();
     handleSensorReadingCycle();
+    updateLocalScheduleFallback();
     lastReadingAt = millis();
+    lastScheduleCheckAt = millis();
   }
 }
 
@@ -729,8 +747,7 @@ void loop()
 {
   unsigned long now = millis();
 
-  updateManualButton();
-  updateWateringState();
+  updateLocalControls();
 
   if (!isWifiConnected())
   {
@@ -757,7 +774,14 @@ void loop()
       lastReadingAt = millis();
     }
 
-    updateManualButton();
+    now = millis();
+    if (now - lastScheduleCheckAt >= SCHEDULE_CHECK_INTERVAL_MS)
+    {
+      updateLocalScheduleFallback();
+      lastScheduleCheckAt = millis();
+    }
+
+    updateLocalControls();
     delay(LOOP_IDLE_DELAY_MS);
     return;
   }
@@ -769,7 +793,7 @@ void loop()
   {
     sendHeartbeat();
     lastHeartbeatAt = millis();
-    updateManualButton();
+    updateLocalControls();
   }
 
   now = millis();
@@ -778,7 +802,7 @@ void loop()
   {
     pollCommands();
     lastCommandPollAt = millis();
-    updateManualButton();
+    updateLocalControls();
   }
 
   now = millis();
@@ -787,7 +811,16 @@ void loop()
   {
     handleSensorReadingCycle();
     lastReadingAt = millis();
-    updateManualButton();
+    updateLocalControls();
+  }
+
+  now = millis();
+
+  if (now - lastScheduleCheckAt >= SCHEDULE_CHECK_INTERVAL_MS)
+  {
+    updateLocalScheduleFallback();
+    lastScheduleCheckAt = millis();
+    updateLocalControls();
   }
 
   now = millis();
@@ -796,9 +829,9 @@ void loop()
   {
     fetchConfig();
     lastConfigFetchAt = millis();
-    updateManualButton();
+    updateLocalControls();
   }
 
-  updateManualButton();
+  updateLocalControls();
   delay(LOOP_IDLE_DELAY_MS);
 }
