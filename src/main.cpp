@@ -465,6 +465,31 @@ bool parseConfigResponse(const String &response)
   return true;
 }
 
+String extractConfigJsonForCache(const String &response)
+{
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error)
+  {
+    Serial.print("Failed to parse config response for cache extraction: ");
+    Serial.println(error.c_str());
+    return "";
+  }
+
+  JsonObject config = doc["config"].as<JsonObject>();
+
+  if (config.isNull())
+  {
+    Serial.println("Cannot extract cache config: config object missing.");
+    return "";
+  }
+
+  String configJson;
+  serializeJson(config, configJson);
+  return configJson;
+}
+
 bool fetchConfig()
 {
   String response;
@@ -482,7 +507,8 @@ bool fetchConfig()
     return false;
   }
 
-  saveCachedConfigJsonIfChanged(response);
+  String configJson = extractConfigJsonForCache(response);
+  saveCachedConfigJsonIfChanged(configJson);
 
   Serial.println("Config fetched successfully.");
   return true;
