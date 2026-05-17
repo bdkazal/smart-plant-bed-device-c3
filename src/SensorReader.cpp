@@ -4,6 +4,16 @@
 
 static const int SOIL_MOISTURE_PIN = 1;
 
+// ESP32-C3 calibration for the selected new capacitive soil sensor v1.2.
+// Measured by user on this C3 board with 100k pulldown on GPIO1:
+//   unplugged data pin: ~197-209
+//   wet soil:           ~1741-1753
+//   dry soil:           ~2362-2371
+//   air:                ~2795-2829
+static const int SOIL_DISCONNECTED_RAW_MAX = 800;
+static const int SOIL_WET_RAW = 1750;
+static const int SOIL_DRY_RAW = 2365;
+
 void beginSensorReader()
 {
   pinMode(SOIL_MOISTURE_PIN, INPUT);
@@ -12,7 +22,28 @@ void beginSensorReader()
   Serial.println("Sensor reader initialized.");
   Serial.print("Soil moisture ADC GPIO: ");
   Serial.println(SOIL_MOISTURE_PIN);
-  Serial.println("Soil mode: raw ADC only, no percent/calibration/automation yet");
+  Serial.println("Soil sensor profile: capacitive v1.2, 100k pulldown on ADC pin");
+  Serial.print("Soil disconnected raw max: ");
+  Serial.println(SOIL_DISCONNECTED_RAW_MAX);
+  Serial.print("Soil wet raw: ");
+  Serial.println(SOIL_WET_RAW);
+  Serial.print("Soil dry raw: ");
+  Serial.println(SOIL_DRY_RAW);
+}
+
+int clampPercent(int value)
+{
+  if (value < 0)
+  {
+    return 0;
+  }
+
+  if (value > 100)
+  {
+    return 100;
+  }
+
+  return value;
 }
 
 int readSoilMoistureRaw()
@@ -29,6 +60,24 @@ int readSoilMoistureRaw()
   return total / sampleCount;
 }
 
+bool isSoilMoistureSensorAvailable(int rawValue)
+{
+  return rawValue >= SOIL_DISCONNECTED_RAW_MAX;
+}
+
+int convertSoilRawToPercent(int rawValue)
+{
+  // Capacitive sensor behavior:
+  //   higher raw = drier
+  //   lower raw  = wetter
+  // Calibration for selected v1.2 sensor:
+  //   SOIL_DRY_RAW -> 0%
+  //   SOIL_WET_RAW -> 100%
+  int percent = map(rawValue, SOIL_DRY_RAW, SOIL_WET_RAW, 0, 100);
+
+  return clampPercent(percent);
+}
+
 SensorReading readSensors()
 {
   SensorReading reading;
@@ -36,13 +85,27 @@ SensorReading readSensors()
   int soilRaw = readSoilMoistureRaw();
 
   reading.soilMoistureRaw = soilRaw;
-  reading.hasSoilMoisture = true;
+  reading.hasSoilMoisture = isSoilMoistureSensorAvailable(soilRaw);
+
+  if (reading.hasSoilMoisture)
+  {
+    reading.soilMoisturePercent = convertSoilRawToPercent(soilRaw);
+  }
 
   Serial.println();
   Serial.println("Sensor reading:");
   Serial.print("Soil moisture raw: ");
   Serial.println(soilRaw);
-  Serial.println("Soil moisture %: disabled until C3 calibration");
+
+  if (reading.hasSoilMoisture)
+  {
+    Serial.print("Soil moisture %: ");
+    Serial.println(reading.soilMoisturePercent);
+  }
+  else
+  {
+    Serial.println("Soil moisture: unavailable / sensor disconnected");
+  }
 
   return reading;
 }
