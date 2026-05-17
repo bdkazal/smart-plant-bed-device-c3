@@ -7,12 +7,15 @@
 #include "DeviceSecrets.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m4-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m5-dev"
 #endif
 
 const int VALVE_PIN = 5;
 const int VALVE_ON_LEVEL = HIGH;
 const int VALVE_OFF_LEVEL = LOW;
+
+const int MANUAL_WATER_BUTTON_PIN = 3;
+const unsigned long BUTTON_DEBOUNCE_MS = 50;
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
 
@@ -36,6 +39,10 @@ unsigned long lastHeartbeatAt = 0;
 unsigned long lastConfigFetchAt = 0;
 unsigned long lastCommandPollAt = 0;
 unsigned long lastServerSuccessAt = 0;
+
+bool lastManualButtonReading = HIGH;
+bool stableManualButtonState = HIGH;
+unsigned long lastManualButtonChangeAt = 0;
 
 ApiClient apiClient;
 bool serverReachable = false;
@@ -158,6 +165,21 @@ void beginValveOutput()
   pinMode(VALVE_PIN, OUTPUT);
   setValveOff("safe boot default");
   clearWateringRuntime();
+}
+
+void beginManualButton()
+{
+  pinMode(MANUAL_WATER_BUTTON_PIN, INPUT_PULLUP);
+
+  lastManualButtonReading = digitalRead(MANUAL_WATER_BUTTON_PIN);
+  stableManualButtonState = lastManualButtonReading;
+  lastManualButtonChangeAt = millis();
+
+  Serial.println();
+  Serial.println("Manual watering button initialized.");
+  Serial.print("Manual button GPIO: ");
+  Serial.println(MANUAL_WATER_BUTTON_PIN);
+  Serial.println("Button mode: INPUT_PULLUP, press connects GPIO to GND");
 }
 
 void printBootInfo()
@@ -366,6 +388,17 @@ bool syncDeviceState(int lastCompletedCommandId = 0)
   return false;
 }
 
+void syncDeviceStateIfServerReachable(int lastCompletedCommandId = 0)
+{
+  if (!isServerRecentlyReachable())
+  {
+    Serial.println("Device state sync skipped: Laravel is not recently reachable.");
+    return;
+  }
+
+  syncDeviceState(lastCompletedCommandId);
+}
+
 void printConfigSummary()
 {
   Serial.println("Config summary:");
@@ -528,6 +561,123 @@ int commandDurationSeconds(JsonObject command)
   return duration;
 }
 
+int getLocalManualDurationSeconds()
+{
+  if (configLocalManualDurationSeconds > 0)
+  {
+    return configLocalManualDurationSeconds;
+  }
+
+  return 30;
+}
+
+void startLocalWatering(int durationSeconds)
+{
+  if (wateringActive)
+  {
+    Serial.println("Local watering request ignored: already watering.");
+    return;
+  }
+
+  if (durationSeconds <= 0)
+  {
+    Serial.println("Local watering request ignored: invalid duration.");
+    return;
+  }
+
+  Serial.println();
+  Serial.println("Starting local watering.");
+
+  activeCommandId = 0;
+  wateringStartedAt = millis();
+  wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
+  wateringActive = true;
+
+  setValveOn("manual button");
+  syncDeviceStateIfServerReachable(0);
+
+  Serial.print("Local watering duration seconds: ");
+  Serial.println(durationSeconds);
+}
+
+void stopLocalWatering()
+{
+  if (!wateringActive)
+  {
+    Serial.println("Local stop ignored: device is not watering.");
+    return;
+  }
+
+  Serial.println();
+  Serial.println("Stopping watering from physical button.");
+
+  int stoppedCommandId = activeCommandId;
+
+  setValveOff("manual button stop");
+  clearWateringRuntime();
+
+  if (stoppedCommandId > 0)
+  {
+    Serial.print("Physical button stopped Laravel command: ");
+    Serial.println(stoppedCommandId);
+
+    bool executed = ackCommand(stoppedCommandId, "executed");
+
+    if (!executed)
+    {
+      Serial.println("Warning: failed to mark stopped Laravel command as executed.");
+    }
+
+    syncDeviceState(stoppedCommandId);
+    return;
+  }
+
+  syncDeviceStateIfServerReachable(0);
+}
+
+void handleManualButtonPress()
+{
+  Serial.println();
+  Serial.println("Manual watering button pressed.");
+
+  if (wateringActive)
+  {
+    stopLocalWatering();
+    return;
+  }
+
+  startLocalWatering(getLocalManualDurationSeconds());
+}
+
+void updateManualButton()
+{
+  bool currentReading = digitalRead(MANUAL_WATER_BUTTON_PIN);
+  unsigned long now = millis();
+
+  if (currentReading != lastManualButtonReading)
+  {
+    lastManualButtonChangeAt = now;
+    lastManualButtonReading = currentReading;
+  }
+
+  if (now - lastManualButtonChangeAt < BUTTON_DEBOUNCE_MS)
+  {
+    return;
+  }
+
+  if (currentReading == stableManualButtonState)
+  {
+    return;
+  }
+
+  stableManualButtonState = currentReading;
+
+  if (stableManualButtonState == LOW)
+  {
+    handleManualButtonPress();
+  }
+}
+
 void handleValveOnCommand(int commandId, JsonObject command)
 {
   int durationSeconds = commandDurationSeconds(command);
@@ -581,9 +731,12 @@ void completeActiveWatering(const char *reason)
       Serial.print("Valve ON command completed and executed: #");
       Serial.println(completedCommandId);
     }
+
+    syncDeviceState(completedCommandId);
+    return;
   }
 
-  syncDeviceState(completedCommandId);
+  syncDeviceStateIfServerReachable(0);
 }
 
 void handleValveOffCommand(int commandId)
@@ -673,8 +826,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 4.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 4.");
+  Serial.println("Unsupported command type for Milestone 5.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 5.");
 }
 
 bool pollCommands()
@@ -756,6 +909,7 @@ void setup()
   delay(1000);
 
   beginValveOutput();
+  beginManualButton();
   printBootInfo();
   apiClient.begin(API_BASE_URL, DEVICE_API_KEY);
 
@@ -775,6 +929,7 @@ void loop()
 {
   unsigned long now = millis();
 
+  updateManualButton();
   updateWateringState();
 
   if (!isWifiConnected())
@@ -793,6 +948,7 @@ void loop()
       }
     }
 
+    updateManualButton();
     delay(LOOP_IDLE_DELAY_MS);
     return;
   }
@@ -803,6 +959,7 @@ void loop()
   {
     sendHeartbeat();
     lastHeartbeatAt = millis();
+    updateManualButton();
   }
 
   now = millis();
@@ -811,6 +968,7 @@ void loop()
   {
     pollCommands();
     lastCommandPollAt = millis();
+    updateManualButton();
   }
 
   now = millis();
@@ -819,7 +977,9 @@ void loop()
   {
     fetchConfig();
     lastConfigFetchAt = millis();
+    updateManualButton();
   }
 
+  updateManualButton();
   delay(LOOP_IDLE_DELAY_MS);
 }
