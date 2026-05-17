@@ -169,7 +169,7 @@ void stopWateringCommand(int commandId)
   syncDeviceState(commandId);
 }
 
-void startLocalWatering(int durationSeconds)
+void startLocalWateringWithReason(int durationSeconds, const char *reason)
 {
   if (wateringActive)
   {
@@ -191,11 +191,21 @@ void startLocalWatering(int durationSeconds)
   wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
   wateringActive = true;
 
-  setValveOn("manual button");
+  setValveOn(reason);
   syncDeviceStateIfServerReachable(0);
 
   Serial.print("Local watering duration seconds: ");
   Serial.println(durationSeconds);
+}
+
+void startLocalWatering(int durationSeconds)
+{
+  startLocalWateringWithReason(durationSeconds, "manual button");
+}
+
+void startLocalAutoWatering(int durationSeconds)
+{
+  startLocalWateringWithReason(durationSeconds, "local auto fallback");
 }
 
 void stopLocalWatering()
