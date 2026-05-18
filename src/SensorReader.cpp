@@ -194,7 +194,7 @@ SensorReading readSensors()
     return reading;
   }
 
-  displayShowCurrentStatus(0);
+  displayShowCurrentStatus();
 
   return reading;
 }
