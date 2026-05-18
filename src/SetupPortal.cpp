@@ -6,6 +6,7 @@
 
 #include "DeviceStorage.h"
 #include "DisplayManager.h"
+#include "ValveController.h"
 
 static const char *SETUP_AP_SSID = "PlantBed-Setup";
 static const char *SETUP_AP_PASSWORD = "plantbed123";
@@ -91,6 +92,12 @@ void handleNetworks()
   setupServer.send(200, "application/json", json);
 }
 
+void updateSetupPortalLocalRuntime()
+{
+  updateWateringState();
+  updateDisplayManager();
+}
+
 bool testWiFiCredentials(const String &ssid, const String &password)
 {
   Serial.println();
@@ -109,6 +116,7 @@ bool testWiFiCredentials(const String &ssid, const String &password)
     delay(500);
     Serial.print(".");
     setupServer.handleClient();
+    updateSetupPortalLocalRuntime();
     attempts++;
   }
 
@@ -126,6 +134,7 @@ bool testWiFiCredentials(const String &ssid, const String &password)
   WiFi.disconnect(false, false);
   WiFi.mode(WIFI_AP_STA);
   applySetupWifiPower();
+  updateSetupPortalLocalRuntime();
   return false;
 }
 
