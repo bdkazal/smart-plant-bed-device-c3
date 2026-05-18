@@ -8,6 +8,7 @@ static const char *NAMESPACE = "plantbed";
 static const char *KEY_WIFI_SSID = "wifi_ssid";
 static const char *KEY_WIFI_PASS = "wifi_pass";
 static const char *KEY_CONFIG_JSON = "cfg_json";
+static const char *KEY_WIFI_SETUP_REQUESTED = "wifi_setup";
 
 void beginDeviceStorage()
 {
@@ -61,8 +62,10 @@ bool saveWifiCredentials(const String &ssid, const String &password)
 
   preferences.putString(KEY_WIFI_SSID, ssid);
   preferences.putString(KEY_WIFI_PASS, password);
+  preferences.remove(KEY_WIFI_SETUP_REQUESTED);
 
   Serial.println("Wi-Fi credentials saved to flash.");
+  Serial.println("Wi-Fi setup portal request cleared.");
   return true;
 }
 
@@ -73,6 +76,26 @@ void clearStoredWifiCredentials()
 
   Serial.println("Stored Wi-Fi credentials cleared.");
   Serial.println("Cached Laravel config was not cleared.");
+}
+
+void requestWifiSetupPortalOnNextBoot()
+{
+  preferences.putBool(KEY_WIFI_SETUP_REQUESTED, true);
+  Serial.println("Wi-Fi setup portal requested for next boot.");
+}
+
+bool consumeWifiSetupPortalRequest()
+{
+  bool requested = preferences.getBool(KEY_WIFI_SETUP_REQUESTED, false);
+
+  if (!requested)
+  {
+    return false;
+  }
+
+  preferences.remove(KEY_WIFI_SETUP_REQUESTED);
+  Serial.println("Wi-Fi setup portal request consumed.");
+  return true;
 }
 
 String loadCachedConfigJson()
