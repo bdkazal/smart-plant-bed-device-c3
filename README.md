@@ -7,7 +7,7 @@ This repo is the C3 replacement/port of the original ESP32 DevKit Plant Bed firm
 Current stable firmware:
 
 ```text
-smart-plant-bed-c3-m11-0.4
+smart-plant-bed-c3-m12-0.2
 ```
 
 ## Current status
@@ -36,10 +36,11 @@ Working now:
 - Time sync from NTP and Laravel UTC
 - DS3231 RTC UTC backup
 - RTC update skipped when drift is within 5 seconds
+- Offline schedule fallback using cached schedules and valid local time
+- Multiple offline schedules in the same test session
 
 Not enabled yet:
 
-- Local schedule fallback execution
 - OLED display
 - OLED/display button
 - Wi-Fi setup portal
@@ -57,10 +58,10 @@ Laravel reachable:
   Laravel controls commands, config, state, and automation.
 
 Laravel not reachable:
-  firmware may use cached config + local sensors + RTC time for safe fallback behavior.
+  firmware may use cached config + local sensors + RTC/NTP/Laravel time for safe fallback behavior.
 ```
 
-Local auto-watering is already active as fallback. Local schedule fallback is still disabled until read-only testing passes.
+Local auto-watering and local schedule watering are both fallback-only. They do not run while Laravel is recently reachable.
 
 ## Hardware target
 
@@ -148,7 +149,7 @@ pio device monitor -b 115200
 Expected boot highlights:
 
 ```text
-Firmware version: smart-plant-bed-c3-m11-0.4
+Firmware version: smart-plant-bed-c3-m12-0.2
 Time sync initialized.
 Initializing DS3231 RTC...
 Device storage initialized.
@@ -172,13 +173,22 @@ Minimum checks before continuing:
 - Laravel config cache is not rewritten when unchanged
 - Sensor disconnected shows N/A/null, not false 0
 - Offline auto fallback works only when Laravel is not reachable
+- Offline schedule fallback works only when Laravel is not reachable
+- Multiple offline schedules can run correctly
 - Manual button can start and stop local watering
 - Dashboard commands still work after all local modules are enabled
 
 ## Next milestone
 
 ```text
-M12.1 — Local schedule fallback read-only test
+M13 — production hardening and remaining device features
 ```
 
-This next step should only detect and print schedule matches. It must **not** turn the valve on until read-only schedule matching is verified.
+Good candidates:
+
+```text
+OLED display/status UI
+Wi-Fi setup portal
+local offline event sync to Laravel after reconnect
+final power/enclosure validation
+```
