@@ -35,6 +35,7 @@ extern String configWateringMode;
 extern bool hasSoilMoistureThreshold;
 extern int configSoilMoistureThreshold;
 
+bool displayInitialized = false;
 bool displayAvailable = false;
 bool displayAwake = false;
 bool criticalDisplayActive = false;
@@ -424,6 +425,14 @@ void drawBootLogoBitmap()
 
 void beginDisplayManager()
 {
+  if (displayInitialized)
+  {
+    Serial.println("OLED display manager already initialized. Skipping duplicate init.");
+    return;
+  }
+
+  displayInitialized = true;
+
   Wire.begin(OLED_I2C_SDA_PIN, OLED_I2C_SCL_PIN);
 
   pinMode(DISPLAY_WAKE_BUTTON_PIN, INPUT_PULLUP);
