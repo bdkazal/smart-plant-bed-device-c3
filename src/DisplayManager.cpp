@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <math.h>
 
+#include "BootLogo.h"
 #include "ScheduleConfig.h"
 #include "TimeSync.h"
 #include "ValveController.h"
@@ -375,6 +376,24 @@ String nextScheduleTimeText()
   return bestTime;
 }
 
+void drawBootLogoBitmap()
+{
+  oled.clearDisplay();
+
+  int x = (OLED_SCREEN_WIDTH - BOOT_LOGO_WIDTH) / 2;
+  int y = (OLED_SCREEN_HEIGHT - BOOT_LOGO_HEIGHT) / 2;
+
+  oled.drawBitmap(
+      x,
+      y,
+      bootLogoBitmap,
+      BOOT_LOGO_WIDTH,
+      BOOT_LOGO_HEIGHT,
+      SSD1306_WHITE);
+
+  oled.display();
+}
+
 void beginDisplayManager()
 {
   Wire.begin(OLED_I2C_SDA_PIN, OLED_I2C_SCL_PIN);
@@ -405,13 +424,7 @@ void beginDisplayManager()
     return;
   }
 
-  clearAndPrepareText();
-  printDisplayRow(0, centerText("Plant Bed"));
-  printDisplayRow(1, centerText("OLED ready"));
-  printDisplayRow(2, centerText("C3 Display"));
-  printDisplayRow(3, centerText("Booting..."));
-  oled.display();
-
+  drawBootLogoBitmap();
   wakeDisplay(OLED_BOOT_SHOW_MS);
 }
 
@@ -424,13 +437,7 @@ void displayShowBootLogo(unsigned long visibleMs)
 
   resetCriticalDisplay();
   wakeDisplay(visibleMs);
-
-  clearAndPrepareText();
-  printDisplayRow(0, centerText("Plant Bed"));
-  printDisplayRow(1, centerText("Biztola"));
-  printDisplayRow(2, centerText("ESP32-C3"));
-  printDisplayRow(3, centerText("Starting..."));
-  oled.display();
+  drawBootLogoBitmap();
 }
 
 void displayShowBootStatus(const String &line1, const String &line2, const String &line3)
