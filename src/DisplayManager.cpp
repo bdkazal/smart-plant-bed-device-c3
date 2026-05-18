@@ -21,10 +21,10 @@ static const int DISPLAY_TEXT_COLUMNS = 20;
 static const int DISPLAY_WAKE_BUTTON_PIN = 4;
 static const int SOIL_CRITICAL_PERCENT = 15;
 
+static const unsigned long OLED_BOOT_LOGO_SHOW_MS = 2500;
 static const unsigned long OLED_BOOT_SHOW_MS = 12000;
 static const unsigned long OLED_STATUS_SHOW_MS = 10000;
 static const unsigned long OLED_WAKE_BUTTON_SHOW_MS = 15000;
-static const unsigned long OLED_WATERING_SHOW_MS = 10000;
 static const unsigned long DISPLAY_BUTTON_DEBOUNCE_MS = 50;
 
 Adafruit_SSD1306 oled(OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT, &Wire, OLED_RESET_PIN);
@@ -32,15 +32,15 @@ Adafruit_SSD1306 oled(OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT, &Wire, OLED_RESET_P
 extern bool isWifiConnected();
 extern bool isServerRecentlyReachable();
 extern String configWateringMode;
-extern String configTimezone;
 extern bool hasSoilMoistureThreshold;
 extern int configSoilMoistureThreshold;
-extern int configScheduleCount;
 
 bool displayAvailable = false;
 bool displayAwake = false;
 bool criticalDisplayActive = false;
 bool criticalPageDrawn = false;
+bool startupHomeShown = false;
+bool pendingCriticalAfterHome = false;
 unsigned long displaySleepAt = 0;
 int currentStatusPage = 0;
 
@@ -425,7 +425,10 @@ void beginDisplayManager()
   }
 
   drawBootLogoBitmap();
-  wakeDisplay(OLED_BOOT_SHOW_MS);
+  wakeDisplay(OLED_BOOT_LOGO_SHOW_MS);
+  delay(OLED_BOOT_LOGO_SHOW_MS);
+
+  displayShowBootStatus("Starting device", "Loading config", "Please wait");
 }
 
 void displayShowBootLogo(unsigned long visibleMs)
@@ -549,25 +552,8 @@ void displayShowWateringDone(unsigned long visibleMs)
   oled.display();
 }
 
-void displayShowCriticalIfNeeded()
+void showCriticalDryPage()
 {
-  if (!displayAvailable || !hasLatestDisplayReading)
-  {
-    return;
-  }
-
-  bool criticalDry = latestDisplayReading.hasSoilMoisture && latestDisplayReading.soilMoisturePercent <= SOIL_CRITICAL_PERCENT;
-
-  if (!criticalDry)
-  {
-    if (criticalDisplayActive)
-    {
-      resetCriticalDisplay();
-      displayShowCurrentStatus(OLED_STATUS_SHOW_MS);
-    }
-    return;
-  }
-
   criticalDisplayActive = true;
   wakeDisplay(0);
 
@@ -584,6 +570,38 @@ void displayShowCriticalIfNeeded()
   oled.display();
 
   criticalPageDrawn = true;
+}
+
+void displayShowCriticalIfNeeded()
+{
+  if (!displayAvailable || !hasLatestDisplayReading)
+  {
+    return;
+  }
+
+  bool criticalDry = latestDisplayReading.hasSoilMoisture && latestDisplayReading.soilMoisturePercent <= SOIL_CRITICAL_PERCENT;
+
+  if (!startupHomeShown)
+  {
+    startupHomeShown = true;
+    pendingCriticalAfterHome = criticalDry;
+    displayShowCurrentStatus(OLED_STATUS_SHOW_MS);
+    return;
+  }
+
+  if (!criticalDry)
+  {
+    pendingCriticalAfterHome = false;
+
+    if (criticalDisplayActive)
+    {
+      resetCriticalDisplay();
+      displayShowCurrentStatus(OLED_STATUS_SHOW_MS);
+    }
+    return;
+  }
+
+  showCriticalDryPage();
 }
 
 void handleDisplayButton()
@@ -635,6 +653,14 @@ void updateDisplayManager()
 
   if (displayAwake && displaySleepAt > 0 && millis() >= displaySleepAt)
   {
+    if (pendingCriticalAfterHome)
+    {
+      pendingCriticalAfterHome = false;
+      resetCriticalDisplay();
+      showCriticalDryPage();
+      return;
+    }
+
     sleepDisplay();
   }
 }
