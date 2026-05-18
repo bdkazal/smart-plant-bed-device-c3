@@ -181,20 +181,11 @@ SensorReading readSensors()
     Serial.println("Humidity %: unavailable");
   }
 
+  // Match old Plant Bed behavior:
+  // sensor reads update the cached display data and may show a critical dry alert,
+  // but they must not wake the normal home/status page repeatedly.
   displaySetLatestSensorReading(reading);
   displayShowCriticalIfNeeded();
-
-  if (!isDisplayAvailable())
-  {
-    return reading;
-  }
-
-  if (reading.hasSoilMoisture && reading.soilMoisturePercent <= 15)
-  {
-    return reading;
-  }
-
-  displayShowCurrentStatus();
 
   return reading;
 }
