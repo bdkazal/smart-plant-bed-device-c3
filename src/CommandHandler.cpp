@@ -3,8 +3,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#include "ApiRuntime.h"
 #include "AppConfig.h"
+#include "DeviceApi.h"
 #include "ValveController.h"
 
 int commandDurationSeconds(JsonObject command)
