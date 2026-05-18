@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
-#include "ApiRuntime.h"
 #include "AppConfig.h"
+#include "DeviceApi.h"
 #include "DeviceStorage.h"
 #include "DisplayManager.h"
 #include "LocalAutomation.h"
@@ -117,7 +117,7 @@ void setup()
   beginManualButton();
   beginSensorReader();
   beginLocalAutomation();
-  beginApiRuntime();
+  beginDeviceApi();
 
   printBootInfo();
   connectWifi();
