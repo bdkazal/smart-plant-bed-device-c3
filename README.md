@@ -2,12 +2,12 @@
 
 ESP32-C3 Super Mini firmware for the **Biztola Smart Plant Bed** controller.
 
-This repo is the C3 replacement/port of the original ESP32 DevKit Plant Bed firmware. The product logic follows the old Plant Bed behavior, but the implementation is adapted for the ESP32-C3 Super Mini: single-core CPU, lower power/heat target, fewer usable GPIO pins, native USB serial, RTC backup, OLED status UI, and careful cooperative loop timing.
+This repo is the C3 replacement/port of the original ESP32 DevKit Plant Bed firmware. The product logic follows the old Plant Bed behavior, but the implementation is adapted for the ESP32-C3 Super Mini: single-core CPU, lower power/heat target, fewer usable GPIO pins, native USB serial, RTC backup, OLED status UI, Wi-Fi setup portal, and careful cooperative loop timing.
 
 Current stable firmware:
 
 ```text
-smart-plant-bed-c3-m13-1.0-refactor
+smart-plant-bed-c3-m14-0.1-wifi-setup
 ```
 
 ## Current status
@@ -17,6 +17,13 @@ Working now:
 - ESP32-C3 Super Mini PlatformIO firmware
 - Native USB serial monitor support
 - Wi-Fi station mode with reduced TX power
+- Stored Wi-Fi credentials in ESP32 Preferences/NVS
+- Wi-Fi setup hotspot portal
+- GPIO7 boot-time Wi-Fi reset button
+- Wi-Fi reset clears Wi-Fi credentials only, not cached Laravel config
+- Setup hotspot skips `DeviceSecrets` after a Wi-Fi reset request
+- Setup portal page loads immediately and scans Wi-Fi after page load
+- Setup portal supports scanned Wi-Fi, manual SSID/hidden network, password show/hide, wrong-password retry, save, and restart
 - Laravel API authentication with `X-DEVICE-KEY`
 - Heartbeat
 - Config fetch
@@ -39,13 +46,13 @@ Working now:
 - Multiple offline schedules in the same test session
 - OLED boot logo
 - OLED boot/status/home/schedule/watering/done/critical dry pages
+- OLED Wi-Fi reset/setup status pages
+- OLED schedule page shows weekday + HH:MM for the next schedule
 - GPIO4 OLED wake/next button
 - Modular old Plant Bed-style source structure
 
 Not enabled yet:
 
-- Wi-Fi setup portal
-- Wi-Fi reset provisioning flow
 - Production enclosure/power finalization
 - Offline action history sync back to Laravel after reconnect
 
@@ -69,7 +76,7 @@ Manual button control remains available locally even when Laravel is not reachab
 
 ## Architecture
 
-The firmware is now split into old Plant Bed-style modules:
+The firmware is split into old Plant Bed-style modules:
 
 ```text
 main.cpp
@@ -86,7 +93,13 @@ AppConfig
   config state, config parsing, cache loading, config summary
 
 WiFiMan
-  Wi-Fi connection, Laravel reachability, online/offline timing intervals
+  stored Wi-Fi connection, development fallback, Laravel reachability, online/offline timing intervals
+
+SetupPortal
+  PlantBed-Setup hotspot, setup web page, Wi-Fi scan, credential test, save and restart
+
+WifiReset
+  GPIO7 boot-time Wi-Fi credential reset and setup-portal request
 
 CommandHandler
   dashboard command execution: valve_on / valve_off
@@ -104,10 +117,10 @@ ScheduleConfig / LocalAutomation
   cached schedule parsing and fallback-only local automation
 
 DisplayManager
-  OLED boot logo, status pages, schedule page, watering page, critical dry page, GPIO4 wake/next button
+  OLED boot logo, reset/setup/status pages, schedule page, watering page, critical dry page, GPIO4 wake/next button
 
 DeviceStorage
-  cached Laravel config in Preferences/NVS
+  stored Wi-Fi credentials + cached Laravel config in Preferences/NVS
 ```
 
 See [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md) for more detail.
@@ -129,6 +142,7 @@ Framework: Arduino
 | Wi-Fi status LED | GPIO6 | Active HIGH |
 | Manual watering button | GPIO3 | `INPUT_PULLUP`, press connects to GND |
 | OLED wake/next button | GPIO4 | `INPUT_PULLUP`, press connects to GND |
+| Wi-Fi reset/setup button | GPIO7 | `INPUT_PULLUP`, hold during boot for 3 seconds |
 | Soil moisture ADC | GPIO1 | Capacitive sensor v1.2, 100k pulldown recommended |
 | DHT11 data | GPIO2 | Temperature/humidity reporting only |
 | DS3231 SDA | GPIO8 | I2C shared with OLED |
@@ -137,6 +151,42 @@ Framework: Arduino
 | OLED SCL | GPIO9 | I2C shared with DS3231 |
 
 See [`Docs/HARDWARE_PIN_MAP.md`](Docs/HARDWARE_PIN_MAP.md) for wiring details.
+
+## Wi-Fi setup and reset
+
+Normal development boot:
+
+```text
+stored Wi-Fi exists:
+  connect using stored Wi-Fi
+
+stored Wi-Fi missing:
+  fall back to DeviceSecrets Wi-Fi for development
+```
+
+Wi-Fi reset boot:
+
+```text
+1. Power off device
+2. Hold GPIO7 button to GND
+3. Power on while holding GPIO7
+4. Keep holding for 3 seconds
+5. Device clears stored Wi-Fi only
+6. Cached Laravel config remains
+7. Device restarts into PlantBed-Setup hotspot
+```
+
+Setup hotspot:
+
+```text
+SSID: PlantBed-Setup
+Password: plantbed123
+URL: http://192.168.4.1
+```
+
+The setup page loads immediately, then scans Wi-Fi after page load. If the password is wrong, the same page stays open and shows an error. If the password is correct, credentials are saved and the device restarts.
+
+See [`Docs/WIFI_SETUP_AND_RESET.md`](Docs/WIFI_SETUP_AND_RESET.md).
 
 ## Laravel API endpoints used
 
@@ -174,9 +224,21 @@ Startup sequence:
 
 ```text
 1. Biztola boot logo
-2. Booting information
+2. Booting information / Wi-Fi reset/setup page if needed
 3. Home page for 10 seconds
 4. If soil is critically dry, critical dry page stays awake
+```
+
+Wi-Fi reset/setup OLED pages:
+
+```text
+Wi-Fi Reset
+Keep holding
+3 seconds
+
+Wi-Fi Setup
+PlantBed-Setup
+192.168.4.1
 ```
 
 Normal behavior:
@@ -185,6 +247,11 @@ Normal behavior:
 GPIO4 button:
   cycles home page / schedule page
   wakes OLED for 15 seconds
+
+Schedule page:
+  shows schedule state
+  shows next schedule as weekday + HH:MM
+  shows current HH:MM
 
 Watering active:
   watering page stays awake while watering
@@ -218,6 +285,8 @@ Edit `include/DeviceSecrets.h`:
 
 Use your Mac LAN IP for `API_BASE_URL`, not `localhost`.
 
+`DeviceSecrets` Wi-Fi is a development fallback only. After GPIO7 Wi-Fi reset, the firmware skips `DeviceSecrets` and goes directly to setup hotspot mode.
+
 ## Build, upload, monitor
 
 ```bash
@@ -230,13 +299,15 @@ pio device monitor -b 115200
 Expected boot highlights:
 
 ```text
-Firmware version: smart-plant-bed-c3-m13-1.0-refactor
+Firmware version: smart-plant-bed-c3-m14-0.1-wifi-setup
 Time sync initialized.
 Initializing DS3231 RTC...
 Device storage initialized.
+OLED display manager initialized.
+Checking Wi-Fi reset button...
 Cached config loaded from flash.
 Valve OFF - safe boot default
-OLED display manager initialized.
+Stored Wi-Fi credentials found.
 Wi-Fi connected.
 Heartbeat sent successfully.
 Config fetched successfully.
@@ -262,21 +333,29 @@ Minimum checks before continuing:
 - OLED boot logo appears
 - OLED home page sleeps after 10 seconds
 - GPIO4 cycles OLED home/schedule pages
+- OLED schedule page shows weekday + HH:MM for next schedule
 - Watering page appears while valve is active
 - Critical dry page appears and can be temporarily overridden by GPIO4
+- GPIO7 boot hold clears Wi-Fi credentials only
+- GPIO7 reset starts setup hotspot without trying `DeviceSecrets`
+- PlantBed-Setup hotspot starts
+- Setup portal loads immediately
+- Setup portal scans Wi-Fi after page load
+- Wrong password stays on same setup page
+- Correct password saves Wi-Fi and restarts
+- Stored Wi-Fi is used on the next boot
 
 ## Next milestone
 
 ```text
-M14 — provisioning and production hardening
+M15 — production hardening and stability testing
 ```
 
 Good candidates:
 
 ```text
-Wi-Fi setup portal
-Wi-Fi reset provisioning flow
-local offline event sync to Laravel after reconnect
 final power/enclosure validation
 long-duration stability test
+local offline event sync to Laravel after reconnect
+customer-facing setup polish
 ```
