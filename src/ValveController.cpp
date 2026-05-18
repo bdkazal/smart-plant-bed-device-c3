@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "DisplayManager.h"
+
 const int VALVE_PIN = 5;
 const int VALVE_ON_LEVEL = HIGH;
 const int VALVE_OFF_LEVEL = LOW;
@@ -101,6 +103,7 @@ void startWateringCommand(int commandId, int durationSeconds)
   wateringActive = true;
 
   setValveOn("dashboard command");
+  displayShowWateringStatus(0);
   syncDeviceState(0);
 
   bool acknowledged = ackCommand(commandId, "acknowledged", nullptr);
@@ -120,6 +123,7 @@ void completeActiveWatering(const char *reason)
 
   setValveOff(reason);
   clearWateringRuntime();
+  displayShowWateringDone();
 
   if (completedCommandId > 0)
   {
@@ -142,6 +146,7 @@ void stopWateringCommand(int commandId)
 
   setValveOff("dashboard stop command");
   clearWateringRuntime();
+  displayShowWateringDone();
 
   if (interruptedCommandId > 0 && interruptedCommandId != commandId)
   {
@@ -192,6 +197,7 @@ void startLocalWateringWithReason(int durationSeconds, const char *reason)
   wateringActive = true;
 
   setValveOn(reason);
+  displayShowWateringStatus(0);
   syncDeviceStateIfServerReachable(0);
 
   Serial.print("Local watering duration seconds: ");
@@ -228,6 +234,7 @@ void stopLocalWatering()
 
   setValveOff("manual button stop");
   clearWateringRuntime();
+  displayShowWateringDone();
 
   if (stoppedCommandId > 0)
   {
