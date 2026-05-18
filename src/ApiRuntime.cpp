@@ -9,6 +9,7 @@
 #include "AppConfig.h"
 #include "CommandHandler.h"
 #include "DeviceSecrets.h"
+#include "DeviceStorage.h"
 #include "StatusLed.h"
 #include "ValveController.h"
 
