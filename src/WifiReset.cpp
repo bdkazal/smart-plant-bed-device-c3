@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "DeviceStorage.h"
+#include "DisplayManager.h"
 
 static const int WIFI_RESET_BUTTON_PIN = 7;
 static const unsigned long WIFI_RESET_HOLD_MS = 3000;
@@ -24,6 +25,7 @@ void checkWifiResetOnBoot()
   }
 
   Serial.println("Wi-Fi reset button pressed. Keep holding...");
+  displayShowBootStatus("Wi-Fi Reset", "Keep holding", "3 seconds");
 
   unsigned long startedAt = millis();
 
@@ -32,6 +34,8 @@ void checkWifiResetOnBoot()
     if (digitalRead(WIFI_RESET_BUTTON_PIN) == HIGH)
     {
       Serial.println("Wi-Fi reset cancelled. Button released too early.");
+      displayShowBootStatus("Wi-Fi Reset", "Cancelled", "Released early");
+      delay(1000);
       return;
     }
 
@@ -41,6 +45,8 @@ void checkWifiResetOnBoot()
 
   Serial.println();
   Serial.println("Wi-Fi reset confirmed.");
+  displayShowBootStatus("Wi-Fi Setup", "Starting AP", "PlantBed-Setup");
+
   clearStoredWifiCredentials();
   requestWifiSetupPortalOnNextBoot();
 
