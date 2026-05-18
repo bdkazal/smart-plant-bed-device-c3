@@ -1,6 +1,6 @@
 # Smart Plant Bed C3 Firmware Architecture
 
-This document describes the current ESP32-C3 firmware structure after the M13 modular refactor.
+This document describes the current ESP32-C3 firmware structure after the M14 Wi-Fi setup/provisioning milestone.
 
 The goal is to keep the C3 firmware close to the original Plant Bed firmware style:
 
@@ -13,14 +13,14 @@ Network/API/config/display/automation logic should not live directly in main.cpp
 ## Current firmware
 
 ```text
-smart-plant-bed-c3-m13-1.0-refactor
+smart-plant-bed-c3-m14-0.1-wifi-setup
 ```
 
 ## Core rule
 
 Laravel is the primary controller when reachable.
 
-Local firmware logic is fallback-only unless it is a direct physical/local action, such as the manual watering button.
+Local firmware logic is fallback-only unless it is a direct physical/local action, such as the manual watering button or Wi-Fi setup/reset.
 
 ```text
 Laravel reachable:
@@ -29,6 +29,8 @@ Laravel reachable:
 Laravel not recently reachable:
   firmware may use cached config, local sensors, RTC/NTP time, and local safety rules.
 ```
+
+Wi-Fi setup/reset is local-only and does not clear Laravel config.
 
 ## Module map
 
@@ -43,9 +45,25 @@ runStartupApiTasks()
 handleSensorReadingCycle()
 updateLocalControls()
 logWifiStatusIfNeeded()
+initializeOfflineLocalRuntime()
 ```
 
 It should not contain large JSON parsing, API request construction, command business logic, or display page drawing.
+
+Important boot order:
+
+```text
+beginTimeSync()
+beginDeviceStorage()
+beginDisplayManager()
+checkWifiResetOnBoot()
+consumeWifiSetupPortalRequest()
+loadCachedConfigOnBoot()
+initialize local modules
+connect Wi-Fi or start setup portal
+```
+
+OLED is initialized before Wi-Fi reset check so reset/setup messages can be shown on the display.
 
 ### DeviceApi.h / DeviceApi.cpp
 
@@ -109,10 +127,13 @@ getLocalManualDurationSeconds()
 
 ### WiFiMan.h / WiFiMan.cpp
 
-Owns Wi-Fi and Laravel reachability state:
+Owns normal Wi-Fi connection and Laravel reachability state:
 
 ```text
 connectWifi()
+connectWifiUsingConfig()
+connectWithCredentials()
+updateWiFiReconnect()
 isWifiConnected()
 isServerRecentlyReachable()
 markServerResult()
@@ -122,12 +143,89 @@ commandPollIntervalForCurrentReachability()
 configFetchIntervalForCurrentReachability()
 ```
 
+Behavior:
+
+```text
+stored Wi-Fi exists:
+  connect with stored Wi-Fi
+
+stored Wi-Fi missing:
+  use DeviceSecrets Wi-Fi as development fallback
+
+Wi-Fi reset setup request exists:
+  main.cpp skips connectWifi() and starts setup portal directly
+```
+
 Important behavior:
 
 ```text
 HTTP success marks Laravel reachable.
 HTTP connection failure marks Laravel not confirmed.
 Offline intervals are slower to avoid blocking local controls.
+Non-blocking reconnect keeps local controls responsive.
+```
+
+### SetupPortal.h / SetupPortal.cpp
+
+Owns Wi-Fi setup hotspot and web page:
+
+```text
+startSetupPortal()
+handleSetupPortal()
+isSetupPortalActive()
+```
+
+Setup hotspot:
+
+```text
+SSID: PlantBed-Setup
+Password: plantbed123
+URL: http://192.168.4.1
+```
+
+Routes:
+
+```http
+GET  /
+GET  /networks
+POST /save
+```
+
+Behavior:
+
+```text
+page loads immediately
+Wi-Fi scan starts after page load
+manual SSID supports hidden/unstable networks
+password show/hide button is available
+wrong password keeps same page open
+correct password saves Wi-Fi and restarts
+```
+
+### WifiReset.h / WifiReset.cpp
+
+Owns boot-time Wi-Fi reset button behavior:
+
+```text
+checkWifiResetOnBoot()
+```
+
+GPIO:
+
+```text
+GPIO7 ---- button ---- GND
+INPUT_PULLUP
+hold during boot for 3 seconds
+```
+
+Reset behavior:
+
+```text
+clear wifi_ssid
+clear wifi_pass
+keep cached Laravel config
+set one-shot wifi_setup flag
+restart into setup portal
 ```
 
 ### CommandHandler.h / CommandHandler.cpp
@@ -190,6 +288,7 @@ Owns OLED UI:
 ```text
 boot logo
 boot status
+Wi-Fi reset/setup pages
 home/status page
 schedule page
 watering page
@@ -204,14 +303,19 @@ Current behavior:
 ```text
 Boot logo:       2.5 sec
 Boot status:     during startup
+Wi-Fi reset:     visible while holding GPIO7 during boot
+Wi-Fi setup:     shows PlantBed-Setup and 192.168.4.1
 Home page:       10 sec
 GPIO4 pages:     15 sec
+Schedule page:   next schedule shows weekday + HH:MM
 Watering page:   stay awake while watering
 Done page:       10 sec
 Critical dry:    stay awake
 ```
 
 GPIO4 can temporarily override the critical dry page so the user can view normal pages.
+
+`beginDisplayManager()` has a duplicate-initialization guard to prevent OLED flicker if it is called twice.
 
 ### TimeSync.h / TimeSync.cpp
 
@@ -285,15 +389,36 @@ Local automation does not run while Laravel is recently reachable.
 
 ### DeviceStorage.h / DeviceStorage.cpp
 
-Owns cached config storage in ESP32 Preferences/NVS:
+Owns stored Wi-Fi credentials and cached Laravel config in ESP32 Preferences/NVS:
 
 ```text
 beginDeviceStorage()
+loadStoredDeviceConfig()
+saveWifiCredentials()
+clearStoredWifiCredentials()
+requestWifiSetupPortalOnNextBoot()
+consumeWifiSetupPortalRequest()
 loadCachedConfigJson()
 saveCachedConfigJsonIfChanged()
 ```
 
+Storage keys:
+
+```text
+wifi_ssid
+wifi_pass
+wifi_setup
+cfg_json
+```
+
+Important behavior:
+
+```text
+Wi-Fi reset clears wifi_ssid and wifi_pass only.
+cfg_json cached Laravel config is not cleared.
 Flash write is skipped when cached config is unchanged.
+Preference keys are checked before remove() to avoid harmless NOT_FOUND logs.
+```
 
 ### StatusLed.h / StatusLed.cpp
 
@@ -319,6 +444,7 @@ updateLocalControls() runs before and after network tasks.
 HTTP timeouts are short.
 Offline API retry intervals are slower.
 Manual button and display button must keep working when Laravel is offline.
+Setup portal mode handles web clients and keeps local controls alive.
 ```
 
 ## HTTP timing
@@ -332,7 +458,7 @@ response timeout: 1500 ms
 
 When Laravel resets or refuses a connection, the firmware marks Laravel as not confirmed and continues local operation.
 
-## Tested behavior after refactor
+## Tested behavior after M14
 
 Confirmed on ESP32-C3 hardware:
 
@@ -348,9 +474,19 @@ Command polling works
 Dashboard valve_on works
 Dashboard valve_off works
 Manual button works
-OLED GPIO4 button logs work
+OLED GPIO4 button works
+OLED reset/setup pages work
 Laravel connection reset does not freeze local controls
 Manual watering works while Laravel is not confirmed
+GPIO7 Wi-Fi reset clears Wi-Fi only
+DeviceSecrets is skipped after reset request
+PlantBed-Setup hotspot starts
+Setup page loads immediately
+Wi-Fi scan fills dropdown
+Wrong password stays on setup page
+Correct password saves Wi-Fi and restarts
+Stored Wi-Fi is used after restart
+OLED duplicate initialization guard prevents flicker
 ```
 
 ## Future development notes
@@ -358,12 +494,11 @@ Manual watering works while Laravel is not confirmed
 Planned or possible future modules/features:
 
 ```text
-WiFiSetupPortal
-WiFiReset
 OfflineEventLog
 OfflineEventSync
 PowerManager
 ProductionDiagnostics
+CustomerSetupPolish
 ```
 
 Offline action history sync is intentionally not implemented yet. It requires persistent event storage, replay validation, duplicate prevention, Laravel-side UI handling, and careful consistency rules.
