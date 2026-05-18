@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "DeviceStorage.h"
+#include "DisplayManager.h"
 
 static const char *SETUP_AP_SSID = "PlantBed-Setup";
 static const char *SETUP_AP_PASSWORD = "plantbed123";
@@ -152,6 +153,7 @@ void handleSave()
     return;
   }
 
+  displayShowBootStatus("Wi-Fi Saved", "Restarting", "Please wait");
   setupServer.send(200, "application/json", "{\"ok\":true,\"message\":\"Wi-Fi saved successfully. Device is restarting.\"}");
   delay(1500);
   ESP.restart();
@@ -167,6 +169,7 @@ void startSetupPortal()
 {
   Serial.println();
   Serial.println("Starting setup portal...");
+  displayShowBootStatus("Wi-Fi Setup", "Starting AP", "PlantBed-Setup");
 
   WiFi.persistent(false);
   WiFi.disconnect(true, true);
@@ -207,6 +210,7 @@ void startSetupPortal()
   if (!apStarted)
   {
     Serial.println("Setup portal failed: softAP did not start.");
+    displayShowBootStatus("Wi-Fi Setup", "AP failed", "Restart device");
     setupPortalActive = false;
     return;
   }
@@ -220,6 +224,7 @@ void startSetupPortal()
   setupServer.begin();
   setupPortalActive = true;
 
+  displayShowBootStatus("Wi-Fi Setup", "PlantBed-Setup", "192.168.4.1");
   Serial.println("Setup portal started.");
 }
 
