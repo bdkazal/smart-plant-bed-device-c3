@@ -1,6 +1,6 @@
 # Offline Time and DS3231 RTC
 
-Time handling is critical for future local schedule fallback.
+Time handling is critical for local schedule fallback.
 
 This firmware follows the original Plant Bed rule:
 
@@ -134,25 +134,30 @@ Use 3.3V-safe pullups on I2C.
 
 ## Schedule fallback rule
 
-Local schedule fallback must not run unless valid time is available.
+Local schedule fallback can run only when valid time is available.
 
-Safe requirements before enabling schedule execution:
+Requirements:
 
 ```text
 cached config loaded
 valid time source available: NTP, Laravel UTC, or RTC
+watering_mode = schedule
+Laravel is not recently reachable
 schedules parsed from config
-schedule match tested in read-only mode
-same schedule not triggered twice in same minute
-valve execution tested only after read-only logs are correct
+current local day/time matches an enabled schedule
+same schedule/date/time not already triggered
+valve is not already watering
 ```
+
+Schedule comparison uses local time from the configured timezone. It compares only `HH:MM`, so a schedule at `16:10:00` can trigger during `16:10:00` to `16:10:59`.
 
 Current status:
 
 ```text
-NTP time sync        working
-Laravel UTC sync    working
-DS3231 UTC restore  working
-DS3231 drift skip   working
-schedule execution  disabled
+NTP time sync              working
+Laravel UTC sync          working
+DS3231 UTC restore        working
+DS3231 drift skip         working
+offline schedule fallback working
+multiple schedules        working
 ```
