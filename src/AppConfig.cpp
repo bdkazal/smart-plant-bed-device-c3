@@ -145,7 +145,8 @@ bool parseCachedConfigObjectJson(const String &configJson)
     return false;
   }
 
-  syncTimeFromNtp(configTimezone, configTimezoneOffsetMinutes);
+  applyTimezone(configTimezone, configTimezoneOffsetMinutes);
+  Serial.println("Cached config applied without NTP sync. RTC/Laravel/NTP will update time separately.");
 
   serverTimeUtc = "";
   serverTimeLocal = "";
