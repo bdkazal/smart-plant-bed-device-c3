@@ -299,6 +299,34 @@ String scheduleTimeShortText(const WateringScheduleConfig &schedule)
   return "--:--";
 }
 
+String dayOfWeekShortText(int dayOfWeek)
+{
+  switch (dayOfWeek)
+  {
+  case 1:
+    return "Mon";
+  case 2:
+    return "Tue";
+  case 3:
+    return "Wed";
+  case 4:
+    return "Thu";
+  case 5:
+    return "Fri";
+  case 6:
+    return "Sat";
+  case 7:
+    return "Sun";
+  default:
+    return "---";
+  }
+}
+
+String scheduleDayTimeShortText(const WateringScheduleConfig &schedule)
+{
+  return dayOfWeekShortText(schedule.dayOfWeek) + " " + scheduleTimeShortText(schedule);
+}
+
 int minutesFromTimeText(const String &timeText)
 {
   if (timeText.length() < 5)
@@ -323,7 +351,7 @@ String nextScheduleTimeText()
 
   if (scheduleCount <= 0)
   {
-    return "--:--";
+    return "--- --:--";
   }
 
   int currentDay = getCurrentDayOfWeekIso();
@@ -331,11 +359,11 @@ String nextScheduleTimeText()
 
   if (currentDay == 0 || currentMinute < 0)
   {
-    return "--:--";
+    return "--- --:--";
   }
 
   int bestDistance = 8 * 24 * 60;
-  String bestTime = "--:--";
+  String bestTime = "--- --:--";
 
   for (int i = 0; i < scheduleCount; i++)
   {
@@ -369,7 +397,7 @@ String nextScheduleTimeText()
     if (totalDistance < bestDistance)
     {
       bestDistance = totalDistance;
-      bestTime = scheduleTimeShortText(schedule);
+      bestTime = scheduleDayTimeShortText(schedule);
     }
   }
 
