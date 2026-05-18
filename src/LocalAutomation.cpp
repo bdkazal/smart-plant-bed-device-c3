@@ -15,7 +15,7 @@ extern int configCooldownMinutes;
 extern int configScheduleCount;
 
 unsigned long lastLocalAutoWateringAt = 0;
-String lastReadOnlyScheduleKey = "";
+String lastTriggeredScheduleKey = "";
 
 bool isLocalAutoModeEnabled()
 {
@@ -82,12 +82,12 @@ String makeScheduleTriggerKey(const WateringScheduleConfig &schedule, const Stri
 void beginLocalAutomation()
 {
   lastLocalAutoWateringAt = 0;
-  lastReadOnlyScheduleKey = "";
+  lastTriggeredScheduleKey = "";
 
   Serial.println();
   Serial.println("Local automation initialized.");
   Serial.println("Local auto watering is fallback-only when Laravel is not reachable.");
-  Serial.println("Local schedule fallback is read-only until schedule matching is verified.");
+  Serial.println("Local schedule watering is fallback-only when Laravel is not reachable and valid time is available.");
 }
 
 void updateLocalAutomation(const SensorReading &reading)
@@ -193,21 +193,20 @@ void updateLocalScheduleFallback()
 
     String triggerKey = makeScheduleTriggerKey(schedule, currentDate);
 
-    if (triggerKey == lastReadOnlyScheduleKey)
+    if (triggerKey == lastTriggeredScheduleKey)
     {
       return;
     }
 
     if (schedule.durationSeconds <= 0)
     {
-      Serial.println("Local schedule read-only match skipped: invalid duration.");
-      lastReadOnlyScheduleKey = triggerKey;
+      Serial.println("Local schedule skipped: invalid duration.");
+      lastTriggeredScheduleKey = triggerKey;
       return;
     }
 
     Serial.println();
-    Serial.println("Local fallback schedule match detected - READ ONLY.");
-    Serial.println("Valve will NOT turn on in this milestone.");
+    Serial.println("Local fallback schedule watering triggered.");
     Serial.print("Schedule ID: ");
     Serial.println(schedule.id);
     Serial.print("Day of week: ");
@@ -221,7 +220,9 @@ void updateLocalScheduleFallback()
     Serial.print("Duration seconds: ");
     Serial.println(schedule.durationSeconds);
 
-    lastReadOnlyScheduleKey = triggerKey;
+    startLocalScheduleWatering(schedule.durationSeconds);
+
+    lastTriggeredScheduleKey = triggerKey;
 
     return;
   }
