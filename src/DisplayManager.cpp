@@ -178,17 +178,37 @@ String soilStatusValueText()
     return "N/A";
   }
 
-  if (latestDisplayReading.soilMoisturePercent <= SOIL_CRITICAL_PERCENT)
+  int soilPercent = latestDisplayReading.soilMoisturePercent;
+  int threshold = hasSoilMoistureThreshold && configSoilMoistureThreshold > 0
+                      ? configSoilMoistureThreshold
+                      : 35;
+
+  if (soilPercent <= 15)
+  {
+    return "V.DRY";
+  }
+
+  if (soilPercent <= 30)
   {
     return "DRY";
   }
 
-  if (hasSoilMoistureThreshold && configSoilMoistureThreshold > 0 && latestDisplayReading.soilMoisturePercent <= configSoilMoistureThreshold)
+  if (soilPercent <= threshold)
   {
     return "LOW";
   }
 
-  return "OK";
+  if (soilPercent <= 75)
+  {
+    return "OK";
+  }
+
+  if (soilPercent <= 90)
+  {
+    return "WET";
+  }
+
+  return "V.WET";
 }
 
 String temperatureText()
@@ -369,7 +389,7 @@ void displayShowCriticalIfNeeded()
   wakeDisplay(0);
 
   clearAndPrepareText();
-  printDisplayRow(0, centerText("* DRY SOIL *"));
+  printDisplayRow(0, centerText("* VERY DRY *"));
   printDisplayRow(1, leftRightText(soilValueText(), soilStatusValueText()));
   printDisplayRow(2, leftRightText("LIMIT", String(SOIL_CRITICAL_PERCENT) + "%"));
   printDisplayRow(3, leftRightText(modeText(), wateringStateText()));
