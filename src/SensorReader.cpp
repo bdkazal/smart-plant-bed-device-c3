@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <DHT.h>
 
+#include "DisplayManager.h"
+
 static const int SOIL_MOISTURE_PIN = 1;
 static const int DHT_SENSOR_PIN = 2;
 static const int DHT_TYPE = DHT11;
@@ -37,6 +39,8 @@ void beginSensorReader()
   Serial.println(SOIL_WET_RAW);
   Serial.print("Soil dry raw: ");
   Serial.println(SOIL_DRY_RAW);
+
+  beginDisplayManager();
 }
 
 int clampPercent(int value)
@@ -176,6 +180,21 @@ SensorReading readSensors()
   {
     Serial.println("Humidity %: unavailable");
   }
+
+  displaySetLatestSensorReading(reading);
+  displayShowCriticalIfNeeded();
+
+  if (!isDisplayAvailable())
+  {
+    return reading;
+  }
+
+  if (reading.hasSoilMoisture && reading.soilMoisturePercent <= 15)
+  {
+    return reading;
+  }
+
+  displayShowCurrentStatus(0);
 
   return reading;
 }
