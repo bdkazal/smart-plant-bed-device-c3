@@ -39,6 +39,7 @@ extern int configScheduleCount;
 bool displayAvailable = false;
 bool displayAwake = false;
 bool criticalDisplayActive = false;
+bool criticalPageDrawn = false;
 unsigned long displaySleepAt = 0;
 int currentStatusPage = 0;
 
@@ -148,6 +149,12 @@ void sleepDisplay()
   oled.ssd1306_command(SSD1306_DISPLAYOFF);
   displayAwake = false;
   displaySleepAt = 0;
+}
+
+void resetCriticalDisplay()
+{
+  criticalDisplayActive = false;
+  criticalPageDrawn = false;
 }
 
 String modeText()
@@ -279,17 +286,6 @@ String currentTimeShortText()
   }
 
   return "--:--";
-}
-
-String timeLineText()
-{
-  String localTime = getCurrentTimeString();
-  if (localTime.length() == 0)
-  {
-    localTime = "--:--:--";
-  }
-
-  return leftRightText(getTimeSourceText(), localTime);
 }
 
 String scheduleTimeShortText(const WateringScheduleConfig &schedule)
@@ -426,7 +422,7 @@ void displayShowBootLogo(unsigned long visibleMs)
     return;
   }
 
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(visibleMs);
 
   clearAndPrepareText();
@@ -444,7 +440,7 @@ void displayShowBootStatus(const String &line1, const String &line2, const Strin
     return;
   }
 
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(OLED_BOOT_SHOW_MS);
 
   clearAndPrepareText();
@@ -469,7 +465,7 @@ void displayShowCurrentStatus(unsigned long visibleMs)
   }
 
   currentStatusPage = 0;
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(visibleMs);
 
   clearAndPrepareText();
@@ -488,7 +484,7 @@ void displayShowScheduleStatus(unsigned long visibleMs)
   }
 
   currentStatusPage = 1;
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(visibleMs);
 
   clearAndPrepareText();
@@ -517,7 +513,7 @@ void displayShowWateringStatus(unsigned long visibleMs)
     return;
   }
 
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(visibleMs);
 
   clearAndPrepareText();
@@ -535,7 +531,7 @@ void displayShowWateringDone(unsigned long visibleMs)
     return;
   }
 
-  criticalDisplayActive = false;
+  resetCriticalDisplay();
   wakeDisplay(visibleMs);
 
   clearAndPrepareText();
@@ -559,7 +555,7 @@ void displayShowCriticalIfNeeded()
   {
     if (criticalDisplayActive)
     {
-      criticalDisplayActive = false;
+      resetCriticalDisplay();
       displayShowCurrentStatus(OLED_STATUS_SHOW_MS);
     }
     return;
@@ -568,12 +564,19 @@ void displayShowCriticalIfNeeded()
   criticalDisplayActive = true;
   wakeDisplay(0);
 
+  if (criticalPageDrawn)
+  {
+    return;
+  }
+
   clearAndPrepareText();
   printDisplayRow(0, centerText("* VERY DRY *"));
   printDisplayRow(1, leftRightText(soilValueText(), soilStatusValueText()));
   printDisplayRow(2, leftRightText("LIMIT", String(SOIL_CRITICAL_PERCENT) + "%"));
   printDisplayRow(3, leftRightText(modeText(), wateringStateText()));
   oled.display();
+
+  criticalPageDrawn = true;
 }
 
 void handleDisplayButton()
@@ -621,12 +624,6 @@ void updateDisplayManager()
   }
 
   handleDisplayButton();
-
-  if (criticalDisplayActive)
-  {
-    displayShowCriticalIfNeeded();
-    return;
-  }
 
   if (displayAwake && displaySleepAt > 0 && millis() >= displaySleepAt)
   {
