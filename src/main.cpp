@@ -104,6 +104,15 @@ void runStartupApiTasks()
   lastScheduleCheckAt = now;
 }
 
+void initializeOfflineLocalRuntime()
+{
+  updateWifiStatusLedDisconnected();
+  handleSensorReadingCycle();
+  updateLocalScheduleFallback();
+  lastReadingAt = millis();
+  lastScheduleCheckAt = millis();
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -112,6 +121,7 @@ void setup()
   beginTimeSync();
   beginDeviceStorage();
   checkWifiResetOnBoot();
+  bool shouldStartSetupPortal = consumeWifiSetupPortalRequest();
   loadCachedConfigOnBoot();
   beginValveOutput();
   beginStatusLed();
@@ -121,12 +131,21 @@ void setup()
   beginDeviceApi();
 
   printBootInfo();
-  connectWifi();
 
   unsigned long now = millis();
   lastWifiStatusLogAt = now;
   lastReadingAt = now;
   lastScheduleCheckAt = now;
+
+  if (shouldStartSetupPortal)
+  {
+    Serial.println("Wi-Fi setup was requested. Starting setup portal without trying saved/development Wi-Fi.");
+    startSetupPortal();
+    initializeOfflineLocalRuntime();
+    return;
+  }
+
+  connectWifi();
 
   if (isWifiConnected())
   {
@@ -135,12 +154,8 @@ void setup()
   }
   else
   {
-    updateWifiStatusLedDisconnected();
     startSetupPortal();
-    handleSensorReadingCycle();
-    updateLocalScheduleFallback();
-    lastReadingAt = millis();
-    lastScheduleCheckAt = millis();
+    initializeOfflineLocalRuntime();
   }
 }
 
