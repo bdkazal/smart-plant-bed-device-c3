@@ -42,8 +42,9 @@ void checkWifiResetOnBoot()
   Serial.println();
   Serial.println("Wi-Fi reset confirmed.");
   clearStoredWifiCredentials();
+  requestWifiSetupPortalOnNextBoot();
 
-  Serial.println("Saved Wi-Fi cleared. Cached Laravel config kept. Restarting...");
+  Serial.println("Saved Wi-Fi cleared. Cached Laravel config kept. Restarting into setup portal...");
   delay(1000);
 
   ESP.restart();
