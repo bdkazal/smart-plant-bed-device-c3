@@ -8,18 +8,18 @@
 #include "LocalAutomation.h"
 #include "ManualButton.h"
 #include "SensorReader.h"
+#include "SetupPortal.h"
 #include "StatusLed.h"
 #include "TimeSync.h"
 #include "ValveController.h"
 #include "WiFiMan.h"
+#include "WifiReset.h"
 
-const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 const unsigned long LOOP_IDLE_DELAY_MS = 20;
 const unsigned long WIFI_STATUS_LOG_INTERVAL_MS = 10000;
 const unsigned long READING_INTERVAL_MS = 30000;
 const unsigned long SCHEDULE_CHECK_INTERVAL_MS = 5000;
 
-unsigned long lastWifiRetryAt = 0;
 unsigned long lastWifiStatusLogAt = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastConfigFetchAt = 0;
@@ -104,6 +104,15 @@ void runStartupApiTasks()
   lastScheduleCheckAt = now;
 }
 
+void initializeOfflineLocalRuntime()
+{
+  updateWifiStatusLedDisconnected();
+  handleSensorReadingCycle();
+  updateLocalScheduleFallback();
+  lastReadingAt = millis();
+  lastScheduleCheckAt = millis();
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -111,6 +120,9 @@ void setup()
 
   beginTimeSync();
   beginDeviceStorage();
+  beginDisplayManager();
+  checkWifiResetOnBoot();
+  bool shouldStartSetupPortal = consumeWifiSetupPortalRequest();
   loadCachedConfigOnBoot();
   beginValveOutput();
   beginStatusLed();
@@ -120,13 +132,21 @@ void setup()
   beginDeviceApi();
 
   printBootInfo();
-  connectWifi();
 
   unsigned long now = millis();
-  lastWifiRetryAt = now;
   lastWifiStatusLogAt = now;
   lastReadingAt = now;
   lastScheduleCheckAt = now;
+
+  if (shouldStartSetupPortal)
+  {
+    Serial.println("Wi-Fi setup was requested. Starting setup portal without trying saved/development Wi-Fi.");
+    startSetupPortal();
+    initializeOfflineLocalRuntime();
+    return;
+  }
+
+  connectWifi();
 
   if (isWifiConnected())
   {
@@ -135,11 +155,8 @@ void setup()
   }
   else
   {
-    updateWifiStatusLedDisconnected();
-    handleSensorReadingCycle();
-    updateLocalScheduleFallback();
-    lastReadingAt = millis();
-    lastScheduleCheckAt = millis();
+    startSetupPortal();
+    initializeOfflineLocalRuntime();
   }
 }
 
@@ -149,23 +166,19 @@ void loop()
 
   updateLocalControls();
 
+  if (isSetupPortalActive())
+  {
+    handleSetupPortal();
+    updateLocalControls();
+    delay(LOOP_IDLE_DELAY_MS);
+    return;
+  }
+
   if (!isWifiConnected())
   {
     markServerUnavailable();
     updateWifiStatusLedDisconnected();
-
-    if (now - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS)
-    {
-      Serial.println("Wi-Fi offline. Retrying connection...");
-      connectWifi();
-      lastWifiRetryAt = millis();
-
-      if (isWifiConnected())
-      {
-        setWifiStatusLedConnected();
-        runStartupApiTasks();
-      }
-    }
+    updateWiFiReconnect();
 
     now = millis();
 
@@ -181,6 +194,12 @@ void loop()
     {
       updateLocalScheduleFallback();
       lastScheduleCheckAt = millis();
+    }
+
+    if (isWifiConnected())
+    {
+      setWifiStatusLedConnected();
+      runStartupApiTasks();
     }
 
     updateLocalControls();
