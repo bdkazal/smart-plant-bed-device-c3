@@ -5,7 +5,7 @@ Use this checklist after pulling a new firmware milestone.
 Current stable target:
 
 ```text
-smart-plant-bed-c3-m11-0.4
+smart-plant-bed-c3-m12-0.2
 ```
 
 ## Build and upload
@@ -36,7 +36,7 @@ Status LEDs initialized.
 Manual watering button initialized.
 Sensor reader initialized.
 Local automation initialized.
-Firmware version: smart-plant-bed-c3-m11-0.4
+Firmware version: smart-plant-bed-c3-m12-0.2
 Wi-Fi connected.
 ```
 
@@ -257,15 +257,36 @@ Pass condition:
 - Fallback auto runs only when Laravel is not recently reachable.
 - It does not run while Laravel is reachable.
 
-## Local schedule fallback status
+## Offline schedule fallback test
 
-Current expected message:
+Set Laravel config:
 
 ```text
-Local schedule watering is disabled until schedule fallback read-only testing passes.
+watering_mode = schedule
+3 enabled schedules for today, spaced at least 2 minutes apart
+example: 16:10, 16:12, 16:14
+duration_seconds = 30
 ```
 
-Schedule fallback should not turn valve ON yet.
+Let the device fetch and cache config while Laravel is reachable. Then stop Laravel before schedule time.
+
+Expected for each schedule:
+
+```text
+Local fallback schedule watering triggered.
+Valve ON - local schedule fallback
+Local watering duration seconds: 30
+Watering duration completed.
+Valve OFF - duration completed
+```
+
+Pass conditions:
+
+- Schedule fallback runs only when Laravel is not recently reachable.
+- Time source is valid: NTP, Laravel UTC, or RTC.
+- Multiple schedules can run in the same offline session.
+- Each schedule runs only once for its scheduled minute.
+- Valve turns off after duration.
 
 ## Known monitor behavior
 
