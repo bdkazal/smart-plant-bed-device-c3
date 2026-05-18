@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <math.h>
 
+#include "ScheduleConfig.h"
 #include "TimeSync.h"
 #include "ValveController.h"
 
@@ -169,6 +170,16 @@ String modeText()
   return configWateringMode;
 }
 
+String scheduleStateText()
+{
+  if (configWateringMode != "schedule")
+  {
+    return "OFF";
+  }
+
+  return isWateringActive() ? "ACTIVE" : "IDLE";
+}
+
 String wateringStateText()
 {
   return isWateringActive() ? "Watering" : "IDLE";
@@ -259,6 +270,17 @@ String statusTitleText()
   return "|| Plant Buddy ||";
 }
 
+String currentTimeShortText()
+{
+  String localTime = getCurrentTimeString();
+  if (localTime.length() >= 5)
+  {
+    return localTime.substring(0, 5);
+  }
+
+  return "--:--";
+}
+
 String timeLineText()
 {
   String localTime = getCurrentTimeString();
@@ -270,14 +292,91 @@ String timeLineText()
   return leftRightText(getTimeSourceText(), localTime);
 }
 
-String shortTimezoneText()
+String scheduleTimeShortText(const WateringScheduleConfig &schedule)
 {
-  if (configTimezone.length() == 0)
+  if (schedule.timeOfDay.length() >= 5)
   {
-    return "TZ --";
+    return schedule.timeOfDay.substring(0, 5);
   }
 
-  return limitText(configTimezone, 12);
+  return "--:--";
+}
+
+int minutesFromTimeText(const String &timeText)
+{
+  if (timeText.length() < 5)
+  {
+    return -1;
+  }
+
+  int hour = timeText.substring(0, 2).toInt();
+  int minute = timeText.substring(3, 5).toInt();
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59)
+  {
+    return -1;
+  }
+
+  return hour * 60 + minute;
+}
+
+String nextScheduleTimeText()
+{
+  int scheduleCount = getScheduleConfigCount();
+
+  if (scheduleCount <= 0)
+  {
+    return "--:--";
+  }
+
+  int currentDay = getCurrentDayOfWeekIso();
+  int currentMinute = minutesFromTimeText(getCurrentTimeString());
+
+  if (currentDay == 0 || currentMinute < 0)
+  {
+    return "--:--";
+  }
+
+  int bestDistance = 8 * 24 * 60;
+  String bestTime = "--:--";
+
+  for (int i = 0; i < scheduleCount; i++)
+  {
+    WateringScheduleConfig schedule = getScheduleConfigAt(i);
+
+    if (!schedule.isEnabled || schedule.timeOfDay.length() < 5 || schedule.dayOfWeek < 1 || schedule.dayOfWeek > 7)
+    {
+      continue;
+    }
+
+    int scheduleMinute = minutesFromTimeText(schedule.timeOfDay);
+
+    if (scheduleMinute < 0)
+    {
+      continue;
+    }
+
+    int dayDistance = schedule.dayOfWeek - currentDay;
+    if (dayDistance < 0)
+    {
+      dayDistance += 7;
+    }
+
+    int totalDistance = dayDistance * 24 * 60 + scheduleMinute - currentMinute;
+
+    if (totalDistance < 0)
+    {
+      totalDistance += 7 * 24 * 60;
+    }
+
+    if (totalDistance < bestDistance)
+    {
+      bestDistance = totalDistance;
+      bestTime = scheduleTimeShortText(schedule);
+    }
+  }
+
+  return bestTime;
 }
 
 void beginDisplayManager()
@@ -394,9 +493,9 @@ void displayShowScheduleStatus(unsigned long visibleMs)
 
   clearAndPrepareText();
   printDisplayRow(0, centerText("Schedule Status"));
-  printDisplayRow(1, leftRightText(modeText(), String(configScheduleCount) + " set"));
-  printDisplayRow(2, leftRightText("TZ", shortTimezoneText()));
-  printDisplayRow(3, timeLineText());
+  printDisplayRow(1, leftRightText("Schedule", scheduleStateText()));
+  printDisplayRow(2, leftRightText("Next", nextScheduleTimeText()));
+  printDisplayRow(3, leftRightText("Time", currentTimeShortText()));
   oled.display();
 }
 
