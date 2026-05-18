@@ -22,7 +22,7 @@ static const int SOIL_CRITICAL_PERCENT = 15;
 
 static const unsigned long OLED_BOOT_SHOW_MS = 12000;
 static const unsigned long OLED_STATUS_SHOW_MS = 10000;
-static const unsigned long OLED_WAKE_BUTTON_SHOW_MS = 30000;
+static const unsigned long OLED_WAKE_BUTTON_SHOW_MS = 15000;
 static const unsigned long OLED_WATERING_SHOW_MS = 10000;
 static const unsigned long DISPLAY_BUTTON_DEBOUNCE_MS = 50;
 
@@ -608,7 +608,8 @@ void handleDisplayButton()
 
     if (criticalDisplayActive)
     {
-      displayShowCriticalIfNeeded();
+      resetCriticalDisplay();
+      displayShowNextStatusPage(OLED_WAKE_BUTTON_SHOW_MS);
       return;
     }
 
