@@ -29,11 +29,13 @@ unsigned long configFetchIntervalForCurrentReachability();
 void printBootInfo();
 void connectWifi();
 
+void loadCachedConfigOnBoot();
+bool fetchConfig();
+
 bool sendHeartbeat();
 bool sendSensorReading(const SensorReading &reading);
 bool syncDeviceState(int lastCompletedCommandId);
 void syncDeviceStateIfServerReachable(int lastCompletedCommandId);
-bool fetchConfig();
 bool ackCommand(int commandId, const char *status, const char *message);
 bool pollCommands();
 
