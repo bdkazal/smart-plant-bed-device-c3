@@ -120,6 +120,7 @@ void setup()
 
   beginTimeSync();
   beginDeviceStorage();
+  beginDisplayManager();
   checkWifiResetOnBoot();
   bool shouldStartSetupPortal = consumeWifiSetupPortalRequest();
   loadCachedConfigOnBoot();
