@@ -8,13 +8,14 @@
 #include "DeviceStorage.h"
 #include "LocalAutomation.h"
 #include "ManualButton.h"
+#include "ScheduleConfig.h"
 #include "SensorReader.h"
 #include "StatusLed.h"
 #include "TimeSync.h"
 #include "ValveController.h"
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "smart-plant-bed-c3-m11-dev"
+#define FIRMWARE_VERSION "smart-plant-bed-c3-m12-dev"
 #endif
 
 const char DEVICE_TYPE[] = "plant_bed_controller";
@@ -453,7 +454,8 @@ bool applyConfigObject(JsonObject config)
   configSoilMoistureThreshold = config["soil_moisture_threshold"] | 0;
 
   JsonArray schedules = config["schedules"].as<JsonArray>();
-  configScheduleCount = schedules.isNull() ? 0 : schedules.size();
+  parseScheduleConfigs(schedules);
+  configScheduleCount = getScheduleConfigCount();
 
   return true;
 }
@@ -724,8 +726,8 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 11.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 11.");
+  Serial.println("Unsupported command type for Milestone 12.");
+  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 12.");
 }
 
 bool pollCommands()
