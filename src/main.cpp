@@ -2,6 +2,7 @@
 #include <WiFi.h>
 
 #include "ApiRuntime.h"
+#include "AppConfig.h"
 #include "DeviceStorage.h"
 #include "DisplayManager.h"
 #include "LocalAutomation.h"
@@ -10,6 +11,7 @@
 #include "StatusLed.h"
 #include "TimeSync.h"
 #include "ValveController.h"
+#include "WiFiMan.h"
 
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 const unsigned long LOOP_IDLE_DELAY_MS = 20;
