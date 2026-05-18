@@ -16,10 +16,14 @@ Framework: Arduino
 | Watering LED | GPIO5 | Output mirror | HIGH = ON | Optional LED mirrors valve signal through resistor |
 | Wi-Fi status LED | GPIO6 | Output | HIGH = ON | Current status indicator |
 | Manual watering button | GPIO3 | Input | Press = LOW | `INPUT_PULLUP`, button to GND |
+| OLED wake/next button | GPIO4 | Input | Press = LOW | `INPUT_PULLUP`, button to GND |
+| Wi-Fi reset/setup button | GPIO7 | Input | Press = LOW | `INPUT_PULLUP`, hold during boot for 3 seconds |
 | Soil moisture ADC | GPIO1 | Analog input | n/a | Capacitive soil sensor v1.2 |
 | DHT11 data | GPIO2 | Digital input | n/a | Temperature/humidity reporting only |
-| DS3231 SDA | GPIO8 | I2C | n/a | RTC I2C SDA |
-| DS3231 SCL | GPIO9 | I2C | n/a | RTC I2C SCL |
+| DS3231 SDA | GPIO8 | I2C | n/a | RTC I2C SDA, shared with OLED |
+| DS3231 SCL | GPIO9 | I2C | n/a | RTC I2C SCL, shared with OLED |
+| OLED SDA | GPIO8 | I2C | n/a | Shared with DS3231 |
+| OLED SCL | GPIO9 | I2C | n/a | Shared with DS3231 |
 
 ## Wiring notes
 
@@ -57,6 +61,62 @@ Behavior:
 released = HIGH
 pressed  = LOW
 ```
+
+### OLED wake/next button
+
+```text
+GPIO4 ---- button ---- GND
+```
+
+Firmware:
+
+```text
+pinMode(GPIO4, INPUT_PULLUP)
+```
+
+Behavior:
+
+```text
+released = HIGH
+pressed  = LOW
+```
+
+Use:
+
+```text
+press while OLED is asleep -> wake display
+press while awake -> cycle home/schedule page
+```
+
+### Wi-Fi reset/setup button
+
+```text
+GPIO7 ---- button ---- GND
+```
+
+Firmware:
+
+```text
+pinMode(GPIO7, INPUT_PULLUP)
+```
+
+Behavior:
+
+```text
+released = HIGH
+pressed  = LOW
+```
+
+Use:
+
+```text
+hold GPIO7 during boot for 3 seconds
+clears stored Wi-Fi credentials only
+keeps cached Laravel config
+restarts into PlantBed-Setup hotspot
+```
+
+Do not use GPIO9 for reset because GPIO9 is used by I2C SCL.
 
 ### Soil moisture sensor
 
@@ -108,13 +168,18 @@ DATA -> 10kΩ -> 3.3V
 
 DHT11 is for reporting only. It does not control watering.
 
-### DS3231 RTC
+### DS3231 RTC + OLED shared I2C
 
 ```text
 DS3231 VCC -> 3.3V
 DS3231 GND -> GND
 DS3231 SDA -> GPIO8
 DS3231 SCL -> GPIO9
+
+OLED VCC   -> 3.3V
+OLED GND   -> GND
+OLED SDA   -> GPIO8
+OLED SCL   -> GPIO9
 ```
 
 Rules:
@@ -143,7 +208,9 @@ Working on current prototype:
 GPIO5 valve/watering LED
 GPIO6 Wi-Fi LED
 GPIO3 manual button
+GPIO4 OLED wake/next button
+GPIO7 Wi-Fi reset/setup button
 GPIO1 soil sensor
 GPIO2 DHT11
-GPIO8/GPIO9 DS3231 RTC
+GPIO8/GPIO9 DS3231 RTC + OLED I2C
 ```
