@@ -257,6 +257,8 @@ void stopLocalWatering()
 
 void updateWateringState()
 {
+  updateDisplayManager();
+
   if (!wateringActive)
   {
     return;
