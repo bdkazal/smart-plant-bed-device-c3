@@ -208,6 +208,11 @@ void startLocalAutoWatering(int durationSeconds)
   startLocalWateringWithReason(durationSeconds, "local auto fallback");
 }
 
+void startLocalScheduleWatering(int durationSeconds)
+{
+  startLocalWateringWithReason(durationSeconds, "local schedule fallback");
+}
+
 void stopLocalWatering()
 {
   if (!wateringActive)
