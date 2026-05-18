@@ -64,7 +64,7 @@ Laravel response includes changing server time fields and stable config object:
     "device_name": "Plant Bed C3 Prototype",
     "timezone": "Asia/Dhaka",
     "timezone_offset_minutes": 360,
-    "watering_mode": "auto",
+    "watering_mode": "schedule",
     "soil_moisture_threshold": 35,
     "max_watering_duration_seconds": 30,
     "cooldown_minutes": 10,
@@ -80,6 +80,7 @@ Firmware behavior:
 - Parses `config` for device behavior.
 - Caches only the stable `config` object, not `server_time_utc` or `server_time_local`.
 - Skips flash write if config is unchanged.
+- Uses cached schedules for offline schedule fallback.
 
 ### Sensor readings
 
@@ -172,7 +173,7 @@ Payload:
 {
   "device_uuid": "...",
   "device_type": "plant_bed_controller",
-  "firmware_version": "smart-plant-bed-c3-m11-0.4",
+  "firmware_version": "smart-plant-bed-c3-m12-0.2",
   "operation_state": "idle",
   "valve_state": "closed",
   "watering_state": "idle"
@@ -274,6 +275,28 @@ not already watering
 
 Then firmware starts local watering for `max_watering_duration_seconds`.
 
-## Current disabled behavior
+### Offline schedule fallback
 
-Local schedule fallback is disabled until read-only schedule matching is tested.
+Only when Laravel is not recently reachable:
+
+```text
+watering_mode == schedule
+cached schedules exist
+time is ready from NTP, Laravel UTC, or DS3231 RTC
+schedule is enabled
+schedule day_of_week matches current local ISO day
+schedule HH:MM matches current local HH:MM
+not already watering
+same schedule/date/time not already triggered
+```
+
+Then firmware starts local watering for the schedule's `duration_seconds`.
+
+Expected log:
+
+```text
+Local fallback schedule watering triggered.
+Valve ON - local schedule fallback
+Watering duration completed.
+Valve OFF - duration completed
+```
