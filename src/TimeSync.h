@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 void beginTimeSync();
+void applyTimezone(const String &timezoneName, int timezoneOffsetMinutes = 360);
 void syncTimeFromNtp(const String &timezoneName, int timezoneOffsetMinutes = 360);
 
 // Preferred Laravel fallback time source.

@@ -20,5 +20,6 @@ void ApiClient::addDeviceHeaders(HTTPClient &http) const
 {
   http.addHeader("Accept", "application/json");
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Connection", "close");
   http.addHeader("X-DEVICE-KEY", apiKey);
 }

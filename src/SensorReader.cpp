@@ -39,8 +39,6 @@ void beginSensorReader()
   Serial.println(SOIL_WET_RAW);
   Serial.print("Soil dry raw: ");
   Serial.println(SOIL_DRY_RAW);
-
-  beginDisplayManager();
 }
 
 int clampPercent(int value)

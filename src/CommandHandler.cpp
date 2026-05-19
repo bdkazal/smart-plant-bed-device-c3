@@ -72,6 +72,6 @@ void handleCommand(JsonObject command)
     return;
   }
 
-  Serial.println("Unsupported command type for Milestone 12.");
-  ackCommand(commandId, "failed", "Unsupported command type for ESP32-C3 Milestone 12.");
+  Serial.println("Unsupported command type for this firmware.");
+  ackCommand(commandId, "failed", "Unsupported command type for this firmware.");
 }
