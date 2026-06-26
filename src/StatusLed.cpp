@@ -3,9 +3,9 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 
-static const int WIFI_STATUS_LED_PIN = 27;
+static const int WIFI_STATUS_LED_PIN = 14;
 static const bool WIFI_STATUS_LED_ACTIVE_LOW = false;
-static const int WATERING_STATUS_LED_PIN = 14;
+static const int WATERING_STATUS_LED_PIN = 27;
 static const bool WATERING_STATUS_LED_ACTIVE_LOW = false;
 static const unsigned long WIFI_BLINK_INTERVAL_MS = 2000;
 
