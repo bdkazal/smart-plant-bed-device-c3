@@ -4,7 +4,7 @@
 
 #include "ValveController.h"
 
-const int MANUAL_WATER_BUTTON_PIN = 3;
+const int MANUAL_WATER_BUTTON_PIN = 25;
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
 
 bool lastManualButtonReading = HIGH;
