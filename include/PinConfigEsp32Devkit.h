@@ -25,7 +25,6 @@ static const int MANUAL_WATER_BUTTON_PIN = 25;
 static const int DISPLAY_WAKE_BUTTON_PIN = 33;
 
 static const int DHT_SENSOR_PIN = 32;
-static const int DHT_TYPE = DHT11;
 
 static const int OLED_I2C_SDA_PIN = 21;
 static const int OLED_I2C_SCL_PIN = 22;
