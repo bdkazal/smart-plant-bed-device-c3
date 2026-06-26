@@ -27,8 +27,8 @@ pio device monitor -b 115200
 | Function | GPIO |
 |---|---:|
 | Valve / MOSFET / relay output | GPIO26 |
-| Wi-Fi status LED | GPIO14 |
-| Watering status LED | GPIO27 |
+| Wi-Fi status LED | GPIO27 |
+| Watering status LED | GPIO14 |
 | Wi-Fi reset / BOOT button | GPIO0 |
 | Soil moisture ADC | GPIO34 |
 | Manual watering button | GPIO25 |
@@ -44,4 +44,4 @@ pio device monitor -b 115200
 - The ESP32 build excludes the C3 display and valve source files and uses ESP32-specific replacements:
   - `src/DisplayManagerEsp32.cpp`
   - `src/ValveControllerEsp32.cpp`
-- The Wi-Fi and watering LED pins were swapped after hardware testing showed the original LED mapping did not match the real board wiring.
+- LED mapping follows the original working ESP32 DevKit hardware wiring: Wi-Fi LED on GPIO27 and watering LED on GPIO14.
