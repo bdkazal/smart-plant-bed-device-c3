@@ -4,8 +4,8 @@
 
 #include "DeviceStorage.h"
 #include "DisplayManager.h"
+#include "PinConfig.h"
 
-static const int WIFI_RESET_BUTTON_PIN = 7;
 static const unsigned long WIFI_RESET_HOLD_MS = 3000;
 
 void checkWifiResetOnBoot()
