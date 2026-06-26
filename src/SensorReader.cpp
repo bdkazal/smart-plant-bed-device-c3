@@ -5,21 +5,16 @@
 
 #include "DisplayManager.h"
 
-static const int SOIL_MOISTURE_PIN = 1;
-static const int DHT_SENSOR_PIN = 2;
+static const int SOIL_MOISTURE_PIN = 34;
+static const int DHT_SENSOR_PIN = 32;
 static const int DHT_TYPE = DHT11;
 
 DHT dht(DHT_SENSOR_PIN, DHT_TYPE);
 
-// ESP32-C3 calibration for the selected new capacitive soil sensor v1.2.
-// Measured by user on this C3 board with 100k pulldown on GPIO1:
-//   unplugged data pin: ~197-209
-//   wet soil:           ~1741-1753
-//   dry soil:           ~2362-2371
-//   air:                ~2795-2829
+// ESP32 DevKit calibration from the original prototype with 100k pulldown.
 static const int SOIL_DISCONNECTED_RAW_MAX = 800;
-static const int SOIL_WET_RAW = 1750;
-static const int SOIL_DRY_RAW = 2365;
+static const int SOIL_WET_RAW = 1000;
+static const int SOIL_DRY_RAW = 1550;
 
 void beginSensorReader()
 {
@@ -32,7 +27,7 @@ void beginSensorReader()
   Serial.println(SOIL_MOISTURE_PIN);
   Serial.print("DHT11 data GPIO: ");
   Serial.println(DHT_SENSOR_PIN);
-  Serial.println("Soil sensor profile: capacitive v1.2, 100k pulldown on ADC pin");
+  Serial.println("Soil sensor profile: ESP32 DevKit capacitive sensor, 100k pulldown on ADC pin");
   Serial.print("Soil disconnected raw max: ");
   Serial.println(SOIL_DISCONNECTED_RAW_MAX);
   Serial.print("Soil wet raw: ");
@@ -77,14 +72,7 @@ bool isSoilMoistureSensorAvailable(int rawValue)
 
 int convertSoilRawToPercent(int rawValue)
 {
-  // Capacitive sensor behavior:
-  //   higher raw = drier
-  //   lower raw  = wetter
-  // Calibration for selected v1.2 sensor:
-  //   SOIL_DRY_RAW -> 0%
-  //   SOIL_WET_RAW -> 100%
   int percent = map(rawValue, SOIL_DRY_RAW, SOIL_WET_RAW, 0, 100);
-
   return clampPercent(percent);
 }
 
@@ -179,9 +167,6 @@ SensorReading readSensors()
     Serial.println("Humidity %: unavailable");
   }
 
-  // Match old Plant Bed behavior:
-  // sensor reads update the cached display data and may show a critical dry alert,
-  // but they must not wake the normal home/status page repeatedly.
   displaySetLatestSensorReading(reading);
   displayShowCriticalIfNeeded();
 
