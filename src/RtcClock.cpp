@@ -6,8 +6,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-static const int RTC_I2C_SDA_PIN = 8;
-static const int RTC_I2C_SCL_PIN = 9;
+static const int RTC_I2C_SDA_PIN = 21;
+static const int RTC_I2C_SCL_PIN = 22;
 static const long RTC_UPDATE_DRIFT_THRESHOLD_SECONDS = 5;
 
 RTC_DS3231 rtc;
@@ -110,8 +110,6 @@ bool loadSystemTimeFromRtc()
     return false;
   }
 
-  // DS3231 stores UTC wall-clock time for stable offline backup.
-  // RTClib DateTime::unixtime() treats the stored value as UTC epoch.
   struct timeval tv;
   tv.tv_sec = rtcNow.unixtime();
   tv.tv_usec = 0;
