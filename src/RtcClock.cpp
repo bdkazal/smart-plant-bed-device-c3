@@ -6,8 +6,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-static const int RTC_I2C_SDA_PIN = 8;
-static const int RTC_I2C_SCL_PIN = 9;
+#include "PinConfig.h"
+
 static const long RTC_UPDATE_DRIFT_THRESHOLD_SECONDS = 5;
 
 RTC_DS3231 rtc;
@@ -42,11 +42,11 @@ void beginRtcClock()
   Serial.println();
   Serial.println("Initializing DS3231 RTC...");
   Serial.print("DS3231 SDA GPIO: ");
-  Serial.println(RTC_I2C_SDA_PIN);
+  Serial.println(OLED_I2C_SDA_PIN);
   Serial.print("DS3231 SCL GPIO: ");
-  Serial.println(RTC_I2C_SCL_PIN);
+  Serial.println(OLED_I2C_SCL_PIN);
 
-  Wire.begin(RTC_I2C_SDA_PIN, RTC_I2C_SCL_PIN);
+  Wire.begin(OLED_I2C_SDA_PIN, OLED_I2C_SCL_PIN);
 
   rtcAvailable = rtc.begin();
 
@@ -54,7 +54,6 @@ void beginRtcClock()
   {
     rtcTimeValid = false;
     rtcStatusText = "RTC not found";
-    Serial.println("DS3231 RTC not found on I2C bus.");
     return;
   }
 
@@ -62,7 +61,6 @@ void beginRtcClock()
   {
     rtcTimeValid = false;
     rtcStatusText = "RTC lost power";
-    Serial.println("DS3231 RTC found but lost power. RTC time is not trusted yet.");
     return;
   }
 
@@ -72,8 +70,6 @@ void beginRtcClock()
   if (!rtcTimeValid)
   {
     rtcStatusText = "RTC invalid";
-    Serial.print("DS3231 RTC UTC time invalid: ");
-    printDateTime(now);
     return;
   }
 
@@ -96,7 +92,6 @@ bool loadSystemTimeFromRtc()
 {
   if (!isRtcTimeValid())
   {
-    Serial.println("RTC time load skipped: DS3231 is unavailable or invalid.");
     return false;
   }
 
@@ -106,27 +101,19 @@ bool loadSystemTimeFromRtc()
   {
     rtcTimeValid = false;
     rtcStatusText = "RTC invalid";
-    Serial.println("RTC time load failed: DS3231 time became invalid.");
     return false;
   }
 
-  // DS3231 stores UTC wall-clock time for stable offline backup.
-  // RTClib DateTime::unixtime() treats the stored value as UTC epoch.
   struct timeval tv;
   tv.tv_sec = rtcNow.unixtime();
   tv.tv_usec = 0;
 
   if (settimeofday(&tv, nullptr) != 0)
   {
-    Serial.println("RTC UTC time load failed: settimeofday failed.");
     return false;
   }
 
   rtcStatusText = "RTC UTC time loaded";
-
-  Serial.print("System time loaded from DS3231 UTC: ");
-  printDateTime(rtcNow);
-
   return true;
 }
 
@@ -134,7 +121,6 @@ bool saveSystemTimeToRtc()
 {
   if (!rtcAvailable)
   {
-    Serial.println("RTC update skipped: DS3231 is not available.");
     return false;
   }
 
@@ -143,7 +129,6 @@ bool saveSystemTimeToRtc()
 
   if (nowEpoch <= 0)
   {
-    Serial.println("RTC update skipped: system time is not ready.");
     return false;
   }
 
@@ -151,7 +136,6 @@ bool saveSystemTimeToRtc()
 
   if (!gmtime_r(&nowEpoch, &utcTime))
   {
-    Serial.println("RTC update skipped: UTC conversion failed.");
     return false;
   }
 
@@ -165,7 +149,6 @@ bool saveSystemTimeToRtc()
 
   if (!isReasonableRtcTime(systemUtcNow))
   {
-    Serial.println("RTC update skipped: UTC system time is not reasonable.");
     return false;
   }
 
@@ -175,25 +158,17 @@ bool saveSystemTimeToRtc()
   {
     long driftSeconds = labs((long)systemUtcNow.unixtime() - (long)rtcNow.unixtime());
 
-    Serial.print("DS3231 UTC drift seconds: ");
-    Serial.println(driftSeconds);
-
     if (driftSeconds <= RTC_UPDATE_DRIFT_THRESHOLD_SECONDS)
     {
       rtcTimeValid = true;
       rtcStatusText = "RTC already in sync";
-      Serial.println("RTC update skipped: DS3231 already within 5 seconds of system UTC.");
       return false;
     }
   }
 
   rtc.adjust(systemUtcNow);
   rtcTimeValid = true;
-  rtcStatusText = "RTC synced from UTC system time";
-
-  Serial.print("DS3231 updated from UTC system time: ");
-  printDateTime(systemUtcNow);
-
+  rtcStatusText = "RTC synced";
   return true;
 }
 
