@@ -1,12 +1,14 @@
 #include "ValveController.h"
 
 #include <Arduino.h>
+#include <driver/gpio.h>
 
 #include "DisplayManager.h"
+#include "PinConfig.h"
+#include "StatusLed.h"
 
-const int VALVE_PIN = 5;
-const int VALVE_ON_LEVEL = HIGH;
-const int VALVE_OFF_LEVEL = LOW;
+const int OUTPUT_ON_LEVEL = VALVE_ACTIVE_LOW ? LOW : HIGH;
+const int OUTPUT_OFF_LEVEL = VALVE_ACTIVE_LOW ? HIGH : LOW;
 
 bool valveOpen = false;
 bool wateringActive = false;
@@ -17,6 +19,11 @@ unsigned long wateringDurationMs = 0;
 extern bool ackCommand(int commandId, const char *status, const char *message);
 extern bool syncDeviceState(int lastCompletedCommandId);
 extern void syncDeviceStateIfServerReachable(int lastCompletedCommandId);
+
+void writeOutputLevel(int level)
+{
+  gpio_set_level((gpio_num_t)VALVE_CONTROL_PIN, level == HIGH ? 1 : 0);
+}
 
 bool isValveOpen()
 {
@@ -38,12 +45,13 @@ int getWateringDurationSeconds()
   return wateringDurationMs / 1000UL;
 }
 
-void setValveOff(const char *reason)
+void setOutputOff(const char *reason)
 {
-  digitalWrite(VALVE_PIN, VALVE_OFF_LEVEL);
+  writeOutputLevel(OUTPUT_OFF_LEVEL);
+  setWateringStatusLed(false);
   valveOpen = false;
 
-  Serial.print("Valve OFF");
+  Serial.print("Output OFF");
   if (reason != nullptr && strlen(reason) > 0)
   {
     Serial.print(" - ");
@@ -52,12 +60,13 @@ void setValveOff(const char *reason)
   Serial.println();
 }
 
-void setValveOn(const char *reason)
+void setOutputOn(const char *reason)
 {
-  digitalWrite(VALVE_PIN, VALVE_ON_LEVEL);
+  writeOutputLevel(OUTPUT_ON_LEVEL);
+  setWateringStatusLed(true);
   valveOpen = true;
 
-  Serial.print("Valve ON");
+  Serial.print("Output ON");
   if (reason != nullptr && strlen(reason) > 0)
   {
     Serial.print(" - ");
@@ -76,23 +85,28 @@ void clearWateringRuntime()
 
 void beginValveOutput()
 {
-  pinMode(VALVE_PIN, OUTPUT);
-  setValveOff("safe boot default");
+  pinMode(VALVE_CONTROL_PIN, OUTPUT);
+  setOutputOff("safe boot default");
   clearWateringRuntime();
+
+  Serial.println();
+  Serial.println("Runtime output initialized.");
+  Serial.print("Output GPIO: ");
+  Serial.println(VALVE_CONTROL_PIN);
+  Serial.print("Output active mode: ");
+  Serial.println(VALVE_ACTIVE_LOW ? "ACTIVE LOW" : "ACTIVE HIGH");
 }
 
 void startWateringCommand(int commandId, int durationSeconds)
 {
   if (wateringActive)
   {
-    Serial.println("Valve ON rejected: already watering.");
     ackCommand(commandId, "failed", "Device is already watering.");
     return;
   }
 
   if (durationSeconds <= 0)
   {
-    Serial.println("Valve ON rejected: invalid duration.");
     ackCommand(commandId, "failed", "Invalid duration_seconds.");
     return;
   }
@@ -102,37 +116,23 @@ void startWateringCommand(int commandId, int durationSeconds)
   wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
   wateringActive = true;
 
-  setValveOn("dashboard command");
+  setOutputOn("dashboard command");
   displayShowWateringStatus(0);
   syncDeviceState(0);
-
-  bool acknowledged = ackCommand(commandId, "acknowledged", nullptr);
-
-  if (!acknowledged)
-  {
-    Serial.println("Warning: failed to send acknowledged ack. Local watering still started.");
-  }
-
-  Serial.print("Watering will auto-stop after seconds: ");
-  Serial.println(durationSeconds);
+  ackCommand(commandId, "acknowledged", nullptr);
 }
 
 void completeActiveWatering(const char *reason)
 {
   int completedCommandId = activeCommandId;
 
-  setValveOff(reason);
+  setOutputOff(reason);
   clearWateringRuntime();
   displayShowWateringDone();
 
   if (completedCommandId > 0)
   {
-    if (ackCommand(completedCommandId, "executed", nullptr))
-    {
-      Serial.print("Valve ON command completed and executed: #");
-      Serial.println(completedCommandId);
-    }
-
+    ackCommand(completedCommandId, "executed", nullptr);
     syncDeviceState(completedCommandId);
     return;
   }
@@ -144,64 +144,35 @@ void stopWateringCommand(int commandId)
 {
   int interruptedCommandId = activeCommandId;
 
-  setValveOff("dashboard stop command");
+  setOutputOff("dashboard stop command");
   clearWateringRuntime();
   displayShowWateringDone();
 
   if (interruptedCommandId > 0 && interruptedCommandId != commandId)
   {
-    Serial.print("Closing interrupted valve_on command: #");
-    Serial.println(interruptedCommandId);
     ackCommand(interruptedCommandId, "executed", nullptr);
   }
 
-  bool acknowledged = ackCommand(commandId, "acknowledged", nullptr);
-
-  if (!acknowledged)
-  {
-    Serial.println("Warning: failed to send acknowledged ack for valve_off.");
-  }
-
-  if (ackCommand(commandId, "executed", nullptr))
-  {
-    Serial.println("Valve OFF command executed.");
-  }
-  else
-  {
-    Serial.println("Warning: failed to send executed ack for valve_off.");
-  }
-
+  ackCommand(commandId, "acknowledged", nullptr);
+  ackCommand(commandId, "executed", nullptr);
   syncDeviceState(commandId);
 }
 
 void startLocalWateringWithReason(int durationSeconds, const char *reason)
 {
-  if (wateringActive)
+  if (wateringActive || durationSeconds <= 0)
   {
-    Serial.println("Local watering request ignored: already watering.");
     return;
   }
-
-  if (durationSeconds <= 0)
-  {
-    Serial.println("Local watering request ignored: invalid duration.");
-    return;
-  }
-
-  Serial.println();
-  Serial.println("Starting local watering.");
 
   activeCommandId = 0;
   wateringStartedAt = millis();
   wateringDurationMs = (unsigned long)durationSeconds * 1000UL;
   wateringActive = true;
 
-  setValveOn(reason);
+  setOutputOn(reason);
   displayShowWateringStatus(0);
   syncDeviceStateIfServerReachable(0);
-
-  Serial.print("Local watering duration seconds: ");
-  Serial.println(durationSeconds);
 }
 
 void startLocalWatering(int durationSeconds)
@@ -223,31 +194,18 @@ void stopLocalWatering()
 {
   if (!wateringActive)
   {
-    Serial.println("Local stop ignored: device is not watering.");
     return;
   }
 
-  Serial.println();
-  Serial.println("Stopping watering from physical button.");
-
   int stoppedCommandId = activeCommandId;
 
-  setValveOff("manual button stop");
+  setOutputOff("manual button stop");
   clearWateringRuntime();
   displayShowWateringDone();
 
   if (stoppedCommandId > 0)
   {
-    Serial.print("Physical button stopped Laravel command: ");
-    Serial.println(stoppedCommandId);
-
-    bool executed = ackCommand(stoppedCommandId, "executed", nullptr);
-
-    if (!executed)
-    {
-      Serial.println("Warning: failed to mark stopped Laravel command as executed.");
-    }
-
+    ackCommand(stoppedCommandId, "executed", nullptr);
     syncDeviceState(stoppedCommandId);
     return;
   }
@@ -271,7 +229,5 @@ void updateWateringState()
     return;
   }
 
-  Serial.println();
-  Serial.println("Watering duration completed.");
   completeActiveWatering("duration completed");
 }
